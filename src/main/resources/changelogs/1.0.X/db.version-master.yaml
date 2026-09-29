@@ -1,15 +1,29 @@
 databaseChangeLog:
   - changeSet:
+      id: create-app-user-table.sql
+      author: notetaker
+      changes:
+        - sqlFile:
+            path: ./sql/create-app-user-table.sql
+            relativeToChangelogFile: true
+  - changeSet:
+      id: create-workspace-table.sql
+      author: notetaker
+      changes:
+        - sqlFile:
+            path: ./sql/create-workspace-table.sql
+            relativeToChangelogFile: true
+  - changeSet:
+      id: create-workspace-member-table.sql
+      author: notetaker
+      changes:
+        - sqlFile:
+            path: ./sql/create-workspace-member-table.sql
+            relativeToChangelogFile: true
+  - changeSet:
       id: create-note-table.sql
       author: notetaker
       changes:
         - sqlFile:
             path: ./sql/create-note-table.sql
-            relativeToChangelogFile: true
-  - changeSet:
-      id: create-note-share-table.sql
-      author: notetaker
-      changes:
-        - sqlFile:
-            path: ./sql/create-note-share-table.sql
             relativeToChangelogFile: true

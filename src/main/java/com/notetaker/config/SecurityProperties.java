@@ -9,9 +9,6 @@ import org.springframework.context.annotation.Configuration;
 
 /**
  * Binds the {@code notetaker.security} configuration tree.
- *
- * <p>Multiple trusted issuers are supported so that real user traffic (the FIT-UI OKTA issuer)
- * and our own test/bypass issuer can both be accepted by the resource server.</p>
  */
 @Getter
 @Setter
@@ -28,14 +25,17 @@ public class SecurityProperties {
   /** JWT claim that carries the caller's user id; falls back to the token subject when absent. */
   private String userIdClaim = "employeeNumber";
 
-  /** User id used on profiles that don't require a JWT (local/component-test demo). */
+  /** User id used on profiles that don't require a JWT. */
   private String defaultUserId = "local-user";
 
-  /** Trusted token issuers keyed by a logical name (e.g. {@code fit-ui-issuer}, {@code test-issuer}). */
+  /** Trusted token issuers keyed by a logical name (e.g. {@code notetaker-ui-issuer}, {@code test-issuer}). */
   private Map<String, IssuerProperties> tokenIssuers = new LinkedHashMap<>();
 
   /** JWKS (public-key) caching configuration shared by all issuers. */
   private JwksCache jwks = new JwksCache();
+
+  /** Validated-token keychain: caches a token's validated result to skip re-validation. */
+  private TokenCache tokenCache = new TokenCache();
 
   @Getter
   @Setter
@@ -57,5 +57,14 @@ public class SecurityProperties {
     private long outageProtectionMinutes = 1440;
     private int connectTimeoutMs = 10_000;
     private int readTimeoutMs = 5_000;
+  }
+
+  @Getter
+  @Setter
+  public static class TokenCache {
+    /** How long a validated token stays in the keychain before it must be re-validated. */
+    private long ttlMinutes = 240;
+    /** Maximum number of validated tokens held in the keychain. */
+    private long maximumSize = 10_000;
   }
 }

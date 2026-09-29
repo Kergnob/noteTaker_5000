@@ -1,24 +1,25 @@
 get:
-  operationId: listNoteShares
-  summary: List the users a note is shared with (owner only)
+  operationId: listWorkspaceMembers
+  summary: List the members of a workspace (any member may view)
   security:
     - BearerAuth: [ ]
   tags:
-    - V1Notes
+    - V1Workspaces
   parameters:
     - name: id
       in: path
       required: true
-      description: Unique identifier of the note
+      description: Unique identifier of the workspace
       schema:
-        type: string
+        type: integer
+        format: int64
   responses:
     '200':
-      description: The shares for the note
+      description: The workspace members
       content:
         application/json:
           schema:
-            $ref: "../schemas/note-share.yaml#/NoteSharesResponse"
+            $ref: "../schemas/workspace.yaml#/WorkspaceMembersResponse"
     '401':
       description: No valid JWT authentication token was provided
       content:
@@ -26,47 +27,45 @@ get:
           schema:
             $ref: "../schemas/common/error-response.yaml#/ErrorResponse"
     '403':
-      description: Only the owner may view the shares
-      content:
-        application/json:
-          schema:
-            $ref: "../schemas/common/error-response.yaml#/ErrorResponse"
-    '404':
-      description: No note with the specified id was found
+      description: The caller is not a member of this workspace
       content:
         application/json:
           schema:
             $ref: "../schemas/common/error-response.yaml#/ErrorResponse"
 post:
-  operationId: shareNote
-  summary: Share a note with another user (owner only)
+  operationId: addWorkspaceMember
+  summary: Add or update a member of a workspace (owner only)
   security:
     - BearerAuth: [ ]
   tags:
-    - V1Notes
+    - V1Workspaces
   parameters:
     - name: id
       in: path
       required: true
-      description: Unique identifier of the note
+      description: Unique identifier of the workspace
       schema:
-        type: string
+        type: integer
+        format: int64
   requestBody:
     required: true
     content:
       application/json:
         schema:
-          $ref: "../schemas/note-share.yaml#/ShareNoteRequest"
-        example:
-          sharedWithUserId: "123456"
-          permission: "READ"
+          $ref: "../schemas/workspace.yaml#/AddMemberRequest"
   responses:
-    '201':
-      description: The created share
+    '200':
+      description: The role of an already-existing member was updated
       content:
         application/json:
           schema:
-            $ref: "../schemas/note-share.yaml#/NoteShare"
+            $ref: "../schemas/workspace.yaml#/WorkspaceMember"
+    '201':
+      description: A new member was added to the workspace
+      content:
+        application/json:
+          schema:
+            $ref: "../schemas/workspace.yaml#/WorkspaceMember"
     '400':
       description: The request was invalid
       content:
@@ -80,13 +79,7 @@ post:
           schema:
             $ref: "../schemas/common/error-response.yaml#/ErrorResponse"
     '403':
-      description: Only the owner may share the note
-      content:
-        application/json:
-          schema:
-            $ref: "../schemas/common/error-response.yaml#/ErrorResponse"
-    '404':
-      description: No note with the specified id was found
+      description: Only an owner may manage members
       content:
         application/json:
           schema:

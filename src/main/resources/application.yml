@@ -21,7 +21,7 @@ spring:
         dialect: org.hibernate.dialect.OracleDialect
         default_schema: NOTETAKER
         connection:
-          provider_disables_autocommit: true
+          provider_disables_autoco mmit: true
         jdbc:
           batch_size: 10
           order_inserts: true
@@ -71,3 +71,6 @@ notetaker:
       outage-protection-minutes: 1440
       connect-timeout-ms: 10000
       read-timeout-ms: 5000
+    token-cache:
+      ttl-minutes: 240
+      maximum-size: 10000

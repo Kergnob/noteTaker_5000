@@ -1,6 +1,6 @@
 post:
-  operationId: completeNote
-  summary: Mark a note as completed and save it (owner or editor only)
+  operationId: restoreNote
+  summary: Restore a note from the trash (owner or editor only)
   security:
     - BearerAuth: [ ]
   tags:
@@ -15,7 +15,7 @@ post:
         format: int64
   responses:
     '200':
-      description: The completed note
+      description: The restored note
       content:
         application/json:
           schema:
@@ -27,7 +27,7 @@ post:
           schema:
             $ref: "../schemas/common/error-response.yaml#/ErrorResponse"
     '403':
-      description: The caller may not complete this note
+      description: The caller may not restore this note
       content:
         application/json:
           schema:

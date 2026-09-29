@@ -1,17 +1,24 @@
 package com.notetaker.component
 
+import com.notetaker.model.AddMemberRequest
 import com.notetaker.model.CreateNoteRequest
+import com.notetaker.model.CreateWorkspaceRequest
 import com.notetaker.model.Note
-import com.notetaker.model.NoteShare
-import com.notetaker.model.NoteSharesResponse
 import com.notetaker.model.NotesResponse
-import com.notetaker.model.ShareNoteRequest
-import com.notetaker.model.SharePermission
 import com.notetaker.model.UpdateNoteRequest
+import com.notetaker.model.Workspace
+import com.notetaker.model.WorkspaceMember
+import com.notetaker.model.WorkspaceMembersResponse
+import com.notetaker.model.WorkspaceRole
+import com.notetaker.model.WorkspacesResponse
+import com.notetaker.notes.v1.repository.AppUserRepository
 import com.notetaker.notes.v1.repository.NoteRepository
-import com.notetaker.notes.v1.repository.NoteShareRepository
+import com.notetaker.notes.v1.repository.WorkspaceMemberRepository
+import com.notetaker.notes.v1.repository.WorkspaceRepository
+import com.notetaker.notes.v1.repository.entity.AppUserEntity
 import com.notetaker.notes.v1.repository.entity.NoteEntity
-import com.notetaker.notes.v1.repository.entity.NoteShareEntity
+import com.notetaker.notes.v1.repository.entity.WorkspaceEntity
+import com.notetaker.notes.v1.repository.entity.WorkspaceMemberEntity
 import com.notetaker.security.CurrentUserServiceImpl
 import org.springframework.beans.factory.annotation.Autowired
 import org.springframework.boot.test.context.SpringBootTest
@@ -25,12 +32,16 @@ import org.springframework.http.MediaType
 import org.springframework.test.context.ActiveProfiles
 import spock.lang.Specification
 
-import java.util.UUID
+import java.time.Instant
 
 /**
  * Component test: boots the whole application on a random port under the {@code component-test}
- * profile (no JWT required), drives it exclusively through the HTTP API, and uses the JPA
- * repositories / H2 database directly for data preparation and verification.
+ * profile (no JWT required), drives it through the HTTP API, and uses the JPA repositories /
+ * H2 database directly for data preparation and verification.
+ *
+ * The {@code X-Employee-Number} header impersonates an external identity; the service provisions
+ * an APP_USER row for it on first use. Workspaces and memberships are seeded through the
+ * repositories so tests start from a deterministic state.
  */
 @ActiveProfiles('component-test')
 @SpringBootTest(webEnvironment = SpringBootTest.WebEnvironment.RANDOM_PORT)
@@ -50,14 +61,24 @@ class NoteApiComponentSpec extends Specification {
   NoteRepository noteRepository
 
   @Autowired
-  NoteShareRepository noteShareRepository
+  WorkspaceRepository workspaceRepository
+
+  @Autowired
+  WorkspaceMemberRepository memberRepository
+
+  @Autowired
+  AppUserRepository appUserRepository
 
   def setup() {
-    noteShareRepository.deleteAll()
     noteRepository.deleteAll()
+    memberRepository.deleteAll()
+    workspaceRepository.deleteAll()
+    appUserRepository.deleteAll()
   }
 
   private String notesUrl() { "http://localhost:${port}/api/v1/notes" }
+
+  private String workspacesUrl() { "http://localhost:${port}/api/v1/workspaces" }
 
   private static HttpHeaders headersFor(String user) {
     def headers = new HttpHeaders()
@@ -72,157 +93,251 @@ class NoteApiComponentSpec extends Specification {
     new HttpEntity<>(body, headersFor(user))
   }
 
-  private NoteEntity persistNote(String owner, String title = 'seeded', boolean completed = false) {
+  private AppUserEntity provisionUser(String emp) {
+    appUserRepository.findByEmployeeNumber(emp).orElseGet {
+      def u = new AppUserEntity()
+      u.employeeNumber = emp
+      u.email = "${emp}@notetaker.local"
+      u.displayName = emp
+      appUserRepository.saveAndFlush(u)
+    }
+  }
+
+  private WorkspaceEntity seedWorkspace(String name = 'crew') {
+    def w = new WorkspaceEntity()
+    w.name = name
+    workspaceRepository.saveAndFlush(w)
+  }
+
+  private void addMember(long workspaceId, long userId, String role) {
+    memberRepository.saveAndFlush(new WorkspaceMemberEntity(workspaceId, userId, role))
+  }
+
+  /** Creates a workspace with the given user in the given role and returns [workspaceId, userId]. */
+  private List seedMembership(String emp, String role) {
+    def user = provisionUser(emp)
+    def ws = seedWorkspace()
+    addMember(ws.id, user.id, role)
+    return [ws.id, user.id]
+  }
+
+  private NoteEntity persistNote(long workspaceId, long creator, String title = 'seeded',
+                                 boolean completed = false, Instant deletedAt = null) {
     def n = new NoteEntity()
-    n.id = UUID.randomUUID().toString()
-    n.ownerId = owner
+    n.workspaceId = workspaceId
+    n.createdByUserId = creator
     n.title = title
     n.content = 'seed body'
     n.completed = completed
+    n.deletedAt = deletedAt
     return noteRepository.saveAndFlush(n)
   }
 
-  // ---- create / read happy paths -------------------------------------------------------------
+  // ---- workspace lifecycle --------------------------------------------------------------------
 
-  def "a user can create a note and it is persisted with them as owner"() {
+  def "creating a workspace makes the caller its owner and lists it"() {
+    when: "A creates a workspace"
+    def created = rest.exchange(workspacesUrl(), HttpMethod.POST,
+      asUser(USER_A, new CreateWorkspaceRequest(name: 'Dock 12 crew')), Workspace)
+
+    then:
+    created.statusCode == HttpStatus.CREATED
+    created.body.id != null
+    created.body.role == WorkspaceRole.OWNER
+
+    and: "an APP_USER row was provisioned for A and A owns the workspace"
+    def userA = appUserRepository.findByEmployeeNumber(USER_A).orElse(null)
+    userA != null
+    memberRepository.findByWorkspaceIdAndUserId(created.body.id, userA.id).get().role == 'OWNER'
+
+    when: "A lists their workspaces"
+    def list = rest.exchange(workspacesUrl(), HttpMethod.GET, asUser(USER_A), WorkspacesResponse)
+
+    then:
+    list.body.workspaces*.id == [created.body.id]
+  }
+
+  def "an owner can add a member who then gains access, and can list members"() {
+    given: "A owns a workspace"
+    def (workspaceId, ownerId) = seedMembership(USER_A, 'OWNER')
+
+    when: "A adds B as an editor by employee number"
+    def added = rest.exchange("${workspacesUrl()}/${workspaceId}/members", HttpMethod.POST,
+      asUser(USER_A, new AddMemberRequest(employeeNumber: USER_B, role: WorkspaceRole.EDITOR)), WorkspaceMember)
+
+    then:
+    added.statusCode == HttpStatus.CREATED
+    added.body.employeeNumber == USER_B
+    added.body.role == WorkspaceRole.EDITOR
+
+    and: "B was provisioned and is now a member"
+    def userB = appUserRepository.findByEmployeeNumber(USER_B).orElse(null)
+    userB != null
+    memberRepository.findByWorkspaceIdAndUserId(workspaceId, userB.id).isPresent()
+
+    when: "any member lists the workspace members"
+    def members = rest.exchange("${workspacesUrl()}/${workspaceId}/members", HttpMethod.GET,
+      asUser(USER_B), WorkspaceMembersResponse)
+
+    then:
+    members.body.members*.employeeNumber as Set == [USER_A, USER_B] as Set
+  }
+
+  def "re-adding an existing member updates their role and returns 200"() {
+    given: "A owns a workspace where B is already a VIEWER"
+    def (workspaceId, ownerId) = seedMembership(USER_A, 'OWNER')
+    def userB = provisionUser(USER_B)
+    addMember(workspaceId, userB.id, 'VIEWER')
+
+    when: "A re-adds B as an editor"
+    def updated = rest.exchange("${workspacesUrl()}/${workspaceId}/members", HttpMethod.POST,
+      asUser(USER_A, new AddMemberRequest(employeeNumber: USER_B, role: WorkspaceRole.EDITOR)), WorkspaceMember)
+
+    then: "the response is 200 (updated, not created) and the role changed"
+    updated.statusCode == HttpStatus.OK
+    updated.body.role == WorkspaceRole.EDITOR
+    memberRepository.findByWorkspaceIdAndUserId(workspaceId, userB.id).get().role == 'EDITOR'
+  }
+
+  def "a non-owner cannot add a member (403)"() {
+    given:
+    def (workspaceId, _) = seedMembership(USER_A, 'EDITOR')
+
+    expect:
+    rest.exchange("${workspacesUrl()}/${workspaceId}/members", HttpMethod.POST,
+      asUser(USER_A, new AddMemberRequest(employeeNumber: USER_B, role: WorkspaceRole.VIEWER)), Map)
+      .statusCode == HttpStatus.FORBIDDEN
+  }
+
+  def "adding a member with an invalid role is rejected with 400"() {
+    given:
+    def (workspaceId, _) = seedMembership(USER_A, 'OWNER')
+    def body = '{"employeeNumber":"' + USER_B + '","role":"ADMIN"}'
+
+    expect:
+    rest.exchange("${workspacesUrl()}/${workspaceId}/members", HttpMethod.POST,
+      new HttpEntity<>(body, headersFor(USER_A)), Map)
+      .statusCode == HttpStatus.BAD_REQUEST
+  }
+
+  def "a non-member cannot list workspace members (403)"() {
+    given:
+    def (workspaceId, _) = seedMembership(USER_A, 'OWNER')
+
+    expect:
+    rest.exchange("${workspacesUrl()}/${workspaceId}/members", HttpMethod.GET, asUser(USER_C), Map)
+      .statusCode == HttpStatus.FORBIDDEN
+  }
+
+  def "an owner can remove a member, who then loses access"() {
+    given:
+    def (workspaceId, ownerId) = seedMembership(USER_A, 'OWNER')
+    def userB = provisionUser(USER_B)
+    addMember(workspaceId, userB.id, 'EDITOR')
+    def seeded = persistNote(workspaceId, ownerId, 'shared work')
+
+    when:
+    def removed = rest.exchange("${workspacesUrl()}/${workspaceId}/members/${userB.id}",
+      HttpMethod.DELETE, asUser(USER_A), Void)
+
+    then:
+    removed.statusCode == HttpStatus.NO_CONTENT
+    memberRepository.findByWorkspaceIdAndUserId(workspaceId, userB.id).isEmpty()
+
+    and: "B can no longer read notes in the workspace"
+    rest.exchange("${notesUrl()}/${seeded.id}", HttpMethod.GET, asUser(USER_B), Map)
+      .statusCode == HttpStatus.FORBIDDEN
+  }
+
+  def "the last owner cannot be removed (403)"() {
+    given:
+    def (workspaceId, ownerId) = seedMembership(USER_A, 'OWNER')
+
+    expect:
+    rest.exchange("${workspacesUrl()}/${workspaceId}/members/${ownerId}", HttpMethod.DELETE, asUser(USER_A), Map)
+      .statusCode == HttpStatus.FORBIDDEN
+  }
+
+  // ---- note create / read ---------------------------------------------------------------------
+
+  def "an editor can create a note in their workspace"() {
+    given:
+    def (workspaceId, userId) = seedMembership(USER_A, 'EDITOR')
+
     when:
     def response = rest.exchange(notesUrl(), HttpMethod.POST,
-      asUser(USER_A, new CreateNoteRequest(title: 'Dock 12', content: 'Re-check wrap')), Note)
+      asUser(USER_A, new CreateNoteRequest(workspaceId: workspaceId, title: 'Dock 12', content: 'Re-check wrap')), Note)
 
     then:
     response.statusCode == HttpStatus.CREATED
     response.body.id != null
-    response.body.ownerId == USER_A
-    response.body.title == 'Dock 12'
+    response.body.workspaceId == workspaceId
+    response.body.createdByUserId == userId
     !response.body.completed
-    !response.body.shared
 
-    and: "it exists in the database"
+    and:
     def stored = noteRepository.findById(response.body.id).orElse(null)
     stored != null
-    stored.ownerId == USER_A
+    stored.workspaceId == workspaceId
   }
 
-  def "the owner can read their own note (shared=false)"() {
+  def "a viewer cannot create a note (403)"() {
     given:
-    def seeded = persistNote(USER_A, 'mine')
+    def (workspaceId, _) = seedMembership(USER_A, 'VIEWER')
+
+    expect:
+    rest.exchange(notesUrl(), HttpMethod.POST,
+      asUser(USER_A, new CreateNoteRequest(workspaceId: workspaceId, title: 'nope', content: 'x')), Map)
+      .statusCode == HttpStatus.FORBIDDEN
+  }
+
+  def "a non-member cannot create a note in a workspace (403)"() {
+    given:
+    def ws = seedWorkspace()
+
+    expect:
+    rest.exchange(notesUrl(), HttpMethod.POST,
+      asUser(USER_C, new CreateNoteRequest(workspaceId: ws.id, title: 'nope', content: 'x')), Map)
+      .statusCode == HttpStatus.FORBIDDEN
+  }
+
+  def "any member can read a note in their workspace"() {
+    given:
+    def (workspaceId, ownerId) = seedMembership(USER_A, 'OWNER')
+    def viewer = provisionUser(USER_B)
+    addMember(workspaceId, viewer.id, 'VIEWER')
+    def seeded = persistNote(workspaceId, ownerId, 'mine')
 
     when:
-    def response = rest.exchange("${notesUrl()}/${seeded.id}", HttpMethod.GET, asUser(USER_A), Note)
+    def response = rest.exchange("${notesUrl()}/${seeded.id}", HttpMethod.GET, asUser(USER_B), Note)
 
     then:
     response.statusCode == HttpStatus.OK
     response.body.id == seeded.id
-    !response.body.shared
   }
 
   def "reading a non-existent note returns 404"() {
     expect:
-    rest.exchange("${notesUrl()}/does-not-exist", HttpMethod.GET, asUser(USER_A), Map)
+    rest.exchange("${notesUrl()}/999999", HttpMethod.GET, asUser(USER_A), Map)
       .statusCode == HttpStatus.NOT_FOUND
   }
 
-  def "a user who is neither owner nor sharee cannot read the note (403)"() {
+  def "a non-member cannot read a note (403)"() {
     given:
-    def seeded = persistNote(USER_A)
+    def (workspaceId, ownerId) = seedMembership(USER_A, 'OWNER')
+    def seeded = persistNote(workspaceId, ownerId)
 
     expect:
-    rest.exchange("${notesUrl()}/${seeded.id}", HttpMethod.GET, asUser(USER_B), Map)
+    rest.exchange("${notesUrl()}/${seeded.id}", HttpMethod.GET, asUser(USER_C), Map)
       .statusCode == HttpStatus.FORBIDDEN
   }
 
-  // ---- sharing --------------------------------------------------------------------------------
+  // ---- update / complete (role-gated) ---------------------------------------------------------
 
-  def "the owner can share a note and the sharee can then read it (shared=true)"() {
+  def "an editor can update a note"() {
     given:
-    def seeded = persistNote(USER_A, 'to share')
-
-    when: "owner shares with B"
-    def shareResponse = rest.exchange("${notesUrl()}/${seeded.id}/shares", HttpMethod.POST,
-      asUser(USER_A, new ShareNoteRequest(sharedWithUserId: USER_B, permission: SharePermission.READ)), NoteShare)
-
-    then:
-    shareResponse.statusCode == HttpStatus.CREATED
-    shareResponse.body.sharedWithUserId == USER_B
-    shareResponse.body.permission == SharePermission.READ
-    noteShareRepository.findByNoteId(seeded.id).size() == 1
-
-    when: "B reads the shared note"
-    def getResponse = rest.exchange("${notesUrl()}/${seeded.id}", HttpMethod.GET, asUser(USER_B), Note)
-
-    then:
-    getResponse.statusCode == HttpStatus.OK
-    getResponse.body.shared
-  }
-
-  def "a shared note shows up in the sharee's list flagged as shared"() {
-    given:
-    def owned = persistNote(USER_B, 'b owns this')
-    def shared = persistNote(USER_A, 'a shares this')
-    noteShareRepository.saveAndFlush(new NoteShareEntity(shared.id, USER_B, 'READ'))
-
-    when:
-    def response = rest.exchange(notesUrl(), HttpMethod.GET, asUser(USER_B), NotesResponse)
-
-    then:
-    response.statusCode == HttpStatus.OK
-    response.body.notes*.id as Set == [owned.id, shared.id] as Set
-    def sharedNote = response.body.notes.find { it.id == shared.id }
-    def ownedNote = response.body.notes.find { it.id == owned.id }
-    sharedNote.shared
-    !ownedNote.shared
-    response.body.pageInfo.totalItems == 2
-  }
-
-  def "the owner can list, unshare, and the sharee then loses access"() {
-    given:
-    def seeded = persistNote(USER_A)
-    noteShareRepository.saveAndFlush(new NoteShareEntity(seeded.id, USER_B, 'READ'))
-
-    when: "owner lists shares"
-    def shares = rest.exchange("${notesUrl()}/${seeded.id}/shares", HttpMethod.GET, asUser(USER_A), NoteSharesResponse)
-
-    then:
-    shares.body.shares.size() == 1
-
-    when: "owner unshares B"
-    def unshare = rest.exchange("${notesUrl()}/${seeded.id}/shares/${USER_B}", HttpMethod.DELETE, asUser(USER_A), Void)
-
-    then:
-    unshare.statusCode == HttpStatus.NO_CONTENT
-    noteShareRepository.findByNoteId(seeded.id).isEmpty()
-
-    and: "B can no longer read the note"
-    rest.exchange("${notesUrl()}/${seeded.id}", HttpMethod.GET, asUser(USER_B), Map)
-      .statusCode == HttpStatus.FORBIDDEN
-  }
-
-  def "sharing with an invalid permission is rejected with 400"() {
-    given:
-    def seeded = persistNote(USER_A)
-    def body = '{"sharedWithUserId":"' + USER_B + '","permission":"ADMIN"}'
-    def headers = headersFor(USER_A)
-
-    expect:
-    rest.exchange("${notesUrl()}/${seeded.id}/shares", HttpMethod.POST, new HttpEntity<>(body, headers), Map)
-      .statusCode == HttpStatus.BAD_REQUEST
-  }
-
-  def "a non-owner cannot share a note (403)"() {
-    given:
-    def seeded = persistNote(USER_A)
-
-    expect:
-    rest.exchange("${notesUrl()}/${seeded.id}/shares", HttpMethod.POST,
-      asUser(USER_B, new ShareNoteRequest(sharedWithUserId: USER_C, permission: SharePermission.READ)), Map)
-      .statusCode == HttpStatus.FORBIDDEN
-  }
-
-  // ---- update / complete / delete (owner-only) ------------------------------------------------
-
-  def "the owner can update their note"() {
-    given:
-    def seeded = persistNote(USER_A, 'old title')
+    def (workspaceId, userId) = seedMembership(USER_A, 'EDITOR')
+    def seeded = persistNote(workspaceId, userId, 'old title')
 
     when:
     def response = rest.exchange("${notesUrl()}/${seeded.id}", HttpMethod.PUT,
@@ -232,16 +347,15 @@ class NoteApiComponentSpec extends Specification {
     response.statusCode == HttpStatus.OK
     response.body.title == 'new title'
     response.body.completed
-
-    and:
-    def stored = noteRepository.findById(seeded.id).get()
-    stored.title == 'new title'
-    stored.completed
+    noteRepository.findById(seeded.id).get().title == 'new title'
   }
 
-  def "a non-owner cannot update the note (403) and the data is unchanged"() {
+  def "a viewer cannot update a note (403) and the data is unchanged"() {
     given:
-    def seeded = persistNote(USER_A, 'immutable to others')
+    def (workspaceId, ownerId) = seedMembership(USER_A, 'OWNER')
+    def viewer = provisionUser(USER_B)
+    addMember(workspaceId, viewer.id, 'VIEWER')
+    def seeded = persistNote(workspaceId, ownerId, 'immutable to viewers')
 
     when:
     def response = rest.exchange("${notesUrl()}/${seeded.id}", HttpMethod.PUT,
@@ -249,12 +363,13 @@ class NoteApiComponentSpec extends Specification {
 
     then:
     response.statusCode == HttpStatus.FORBIDDEN
-    noteRepository.findById(seeded.id).get().title == 'immutable to others'
+    noteRepository.findById(seeded.id).get().title == 'immutable to viewers'
   }
 
-  def "the owner can complete a note"() {
+  def "an editor can complete a note"() {
     given:
-    def seeded = persistNote(USER_A, 'to complete', false)
+    def (workspaceId, userId) = seedMembership(USER_A, 'EDITOR')
+    def seeded = persistNote(workspaceId, userId, 'to complete', false)
 
     when:
     def response = rest.exchange("${notesUrl()}/${seeded.id}/complete", HttpMethod.POST, asUser(USER_A), Note)
@@ -265,71 +380,114 @@ class NoteApiComponentSpec extends Specification {
     noteRepository.findById(seeded.id).get().completed
   }
 
-  def "a non-owner cannot complete a note (403)"() {
+  // ---- soft delete / trash / restore ----------------------------------------------------------
+
+  def "deleting a note trashes it: it leaves the active list and appears in trash"() {
     given:
-    def seeded = persistNote(USER_A)
+    def (workspaceId, userId) = seedMembership(USER_A, 'EDITOR')
+    def seeded = persistNote(workspaceId, userId, 'to trash')
 
-    expect:
-    rest.exchange("${notesUrl()}/${seeded.id}/complete", HttpMethod.POST, asUser(USER_B), Map)
-      .statusCode == HttpStatus.FORBIDDEN
-  }
-
-  def "deleting a note as owner removes it and cascades its shares"() {
-    given:
-    def seeded = persistNote(USER_A)
-    noteShareRepository.saveAndFlush(new NoteShareEntity(seeded.id, USER_B, 'READ'))
-
-    when:
+    when: "the note is deleted"
     def response = rest.exchange("${notesUrl()}/${seeded.id}", HttpMethod.DELETE, asUser(USER_A), Void)
 
     then:
     response.statusCode == HttpStatus.NO_CONTENT
-    noteRepository.findById(seeded.id).isEmpty()
-    noteShareRepository.findByNoteId(seeded.id).isEmpty()
+    noteRepository.findById(seeded.id).get().deletedAt != null
+
+    and: "it no longer appears in the active list"
+    def active = rest.exchange(notesUrl(), HttpMethod.GET, asUser(USER_A), NotesResponse)
+    active.body.notes.isEmpty()
+
+    and: "it appears in the trash listing"
+    def trash = rest.exchange("${notesUrl()}/trash", HttpMethod.GET, asUser(USER_A), NotesResponse)
+    trash.body.notes*.id == [seeded.id]
   }
 
-  def "a non-owner cannot delete a note (403)"() {
+  def "a trashed note can be restored"() {
     given:
-    def seeded = persistNote(USER_A)
+    def (workspaceId, userId) = seedMembership(USER_A, 'EDITOR')
+    def seeded = persistNote(workspaceId, userId, 'was trashed', false, Instant.now())
+
+    when:
+    def response = rest.exchange("${notesUrl()}/${seeded.id}/restore", HttpMethod.POST, asUser(USER_A), Note)
+
+    then:
+    response.statusCode == HttpStatus.OK
+    !response.body.deletedAt.isPresent()
+    noteRepository.findById(seeded.id).get().deletedAt == null
+
+    and: "it is active again"
+    def active = rest.exchange(notesUrl(), HttpMethod.GET, asUser(USER_A), NotesResponse)
+    active.body.notes*.id == [seeded.id]
+  }
+
+  def "a viewer cannot delete a note (403)"() {
+    given:
+    def (workspaceId, ownerId) = seedMembership(USER_A, 'OWNER')
+    def viewer = provisionUser(USER_B)
+    addMember(workspaceId, viewer.id, 'VIEWER')
+    def seeded = persistNote(workspaceId, ownerId)
 
     expect:
     rest.exchange("${notesUrl()}/${seeded.id}", HttpMethod.DELETE, asUser(USER_B), Map)
       .statusCode == HttpStatus.FORBIDDEN
-    noteRepository.findById(seeded.id).isPresent()
+    noteRepository.findById(seeded.id).get().deletedAt == null
   }
 
-  // ---- listing / search -----------------------------------------------------------------------
+  // ---- listing / search / pagination ----------------------------------------------------------
 
-  def "list returns only notes visible to the caller"() {
+  def "list returns only active notes in workspaces the caller belongs to"() {
     given:
-    persistNote(USER_A, 'a-1')
-    persistNote(USER_A, 'a-2')
-    persistNote(USER_C, 'c-1')
+    def (wsA, userA) = seedMembership(USER_A, 'EDITOR')
+    def foreign = seedWorkspace('foreign')
+    def userC = provisionUser(USER_C)
+    addMember(foreign.id, userC.id, 'OWNER')
+    persistNote(wsA, userA, 'a-1')
+    persistNote(wsA, userA, 'a-2')
+    persistNote(wsA, userA, 'a-trashed', false, Instant.now())
+    persistNote(foreign.id, userC.id, 'c-1')
 
     when:
     def response = rest.exchange(notesUrl(), HttpMethod.GET, asUser(USER_A), NotesResponse)
 
     then:
-    response.body.notes.size() == 2
-    response.body.notes.every { it.ownerId == USER_A }
+    response.body.notes*.title as Set == ['a-1', 'a-2'] as Set
   }
 
   def "list honours a case-insensitive title search term"() {
     given:
-    persistNote(USER_A, 'Dock 12 inspection')
-    persistNote(USER_A, 'Trailer audit')
+    def (workspaceId, userId) = seedMembership(USER_A, 'EDITOR')
+    persistNote(workspaceId, userId, 'Dock 12 inspection')
+    persistNote(workspaceId, userId, 'Trailer audit')
 
     when:
     def response = rest.exchange("${notesUrl()}?searchTerm=dock", HttpMethod.GET, asUser(USER_A), NotesResponse)
 
     then:
-    response.body.notes.size() == 1
-    response.body.notes[0].title == 'Dock 12 inspection'
+    response.body.notes*.title == ['Dock 12 inspection']
+  }
+
+  def "list can be filtered to a single workspace"() {
+    given:
+    def userA = provisionUser(USER_A)
+    def ws1 = seedWorkspace('one')
+    def ws2 = seedWorkspace('two')
+    addMember(ws1.id, userA.id, 'EDITOR')
+    addMember(ws2.id, userA.id, 'EDITOR')
+    persistNote(ws1.id, userA.id, 'in one')
+    persistNote(ws2.id, userA.id, 'in two')
+
+    when:
+    def response = rest.exchange("${notesUrl()}?workspaceId=${ws1.id}", HttpMethod.GET, asUser(USER_A), NotesResponse)
+
+    then:
+    response.body.notes*.title == ['in one']
   }
 
   def "list paginates results"() {
     given:
-    (1..5).each { persistNote(USER_A, "note-${it}") }
+    def (workspaceId, userId) = seedMembership(USER_A, 'EDITOR')
+    (1..5).each { persistNote(workspaceId, userId, "note-${it}") }
 
     when:
     def response = rest.exchange("${notesUrl()}?pageNumber=1&itemsPerPage=2", HttpMethod.GET, asUser(USER_A), NotesResponse)

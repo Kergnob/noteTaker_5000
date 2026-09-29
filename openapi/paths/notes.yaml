@@ -1,11 +1,18 @@
 get:
   operationId: listNotes
-  summary: List notes visible to the caller (owned and shared-with-me)
+  summary: List active notes in workspaces the caller belongs to
   security:
     - BearerAuth: [ ]
   tags:
     - V1Notes
   parameters:
+    - name: workspaceId
+      in: query
+      required: false
+      description: Restrict results to a single workspace the caller belongs to
+      schema:
+        type: integer
+        format: int64
     - name: pageNumber
       in: query
       required: false
@@ -46,7 +53,7 @@ get:
             $ref: "../schemas/common/error-response.yaml#/ErrorResponse"
 post:
   operationId: createNote
-  summary: Create a new note owned by the caller
+  summary: Create a new note in a workspace (owner or editor only)
   security:
     - BearerAuth: [ ]
   tags:
@@ -57,9 +64,6 @@ post:
       application/json:
         schema:
           $ref: "../schemas/note.yaml#/CreateNoteRequest"
-        example:
-          title: "Dock 12 inspection follow-up"
-          content: "Re-check pallet wrap on HU 4471 before release."
   responses:
     '201':
       description: The created note
@@ -75,6 +79,12 @@ post:
             $ref: "../schemas/common/error-response.yaml#/ErrorResponse"
     '401':
       description: No valid JWT authentication token was provided
+      content:
+        application/json:
+          schema:
+            $ref: "../schemas/common/error-response.yaml#/ErrorResponse"
+    '403':
+      description: The caller may not create notes in this workspace
       content:
         application/json:
           schema:

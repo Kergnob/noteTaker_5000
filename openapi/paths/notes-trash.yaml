@@ -1,0 +1,47 @@
+get:
+  operationId: listTrashedNotes
+  summary: List trashed (soft-deleted) notes in workspaces the caller belongs to
+  security:
+    - BearerAuth: [ ]
+  tags:
+    - V1Notes
+  parameters:
+    - name: workspaceId
+      in: query
+      required: false
+      description: Restrict results to a single workspace the caller belongs to
+      schema:
+        type: integer
+        format: int64
+    - name: pageNumber
+      in: query
+      required: false
+      description: 1-based page number
+      schema:
+        type: integer
+        format: int32
+        minimum: 1
+        default: 1
+    - name: itemsPerPage
+      in: query
+      required: false
+      description: Number of items per page
+      schema:
+        type: integer
+        format: int32
+        minimum: 1
+        maximum: 200
+        default: 20
+  responses:
+    '200':
+      description: A page of trashed notes
+      content:
+        application/json:
+          schema:
+            $ref: "../schemas/notes-response.yaml#/NotesResponse"
+    '401':
+      description: No valid JWT authentication token was provided
+      content:
+        application/json:
+          schema:
+            $ref: "../schemas/common/error-response.yaml#/ErrorResponse"

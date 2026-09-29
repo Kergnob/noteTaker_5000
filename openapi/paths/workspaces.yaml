@@ -1,0 +1,52 @@
+get:
+  operationId: listWorkspaces
+  summary: List workspaces the caller belongs to
+  security:
+    - BearerAuth: [ ]
+  tags:
+    - V1Workspaces
+  responses:
+    '200':
+      description: The caller's workspaces
+      content:
+        application/json:
+          schema:
+            $ref: "../schemas/workspace.yaml#/WorkspacesResponse"
+    '401':
+      description: No valid JWT authentication token was provided
+      content:
+        application/json:
+          schema:
+            $ref: "../schemas/common/error-response.yaml#/ErrorResponse"
+post:
+  operationId: createWorkspace
+  summary: Create a workspace; the caller becomes its owner
+  security:
+    - BearerAuth: [ ]
+  tags:
+    - V1Workspaces
+  requestBody:
+    required: true
+    content:
+      application/json:
+        schema:
+          $ref: "../schemas/workspace.yaml#/CreateWorkspaceRequest"
+  responses:
+    '201':
+      description: The created workspace
+      content:
+        application/json:
+          schema:
+            $ref: "../schemas/workspace.yaml#/Workspace"
+    '400':
+      description: The request was invalid
+      content:
+        application/json:
+          schema:
+            $ref: "../schemas/common/error-response.yaml#/ErrorResponse"
+    '401':
+      description: No valid JWT authentication token was provided
+      content:
+        application/json:
+          schema:
+            $ref: "../schemas/common/error-response.yaml#/ErrorResponse"

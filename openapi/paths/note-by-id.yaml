@@ -1,6 +1,6 @@
 get:
   operationId: getNote
-  summary: Get a single note by id (must be owner or shared-with)
+  summary: Get a single note by id (caller must belong to its workspace)
   security:
     - BearerAuth: [ ]
   tags:
@@ -11,7 +11,8 @@ get:
       required: true
       description: Unique identifier of the note
       schema:
-        type: string
+        type: integer
+        format: int64
   responses:
     '200':
       description: The requested note
@@ -39,7 +40,7 @@ get:
             $ref: "../schemas/common/error-response.yaml#/ErrorResponse"
 put:
   operationId: updateNote
-  summary: Update a note (owner only)
+  summary: Update a note (owner or editor only)
   security:
     - BearerAuth: [ ]
   tags:
@@ -50,17 +51,14 @@ put:
       required: true
       description: Unique identifier of the note
       schema:
-        type: string
+        type: integer
+        format: int64
   requestBody:
     required: true
     content:
       application/json:
         schema:
           $ref: "../schemas/note.yaml#/UpdateNoteRequest"
-        example:
-          title: "Dock 12 inspection follow-up (resolved)"
-          content: "Pallet re-wrapped and released at 14:05."
-          completed: true
   responses:
     '200':
       description: The updated note
@@ -81,7 +79,7 @@ put:
           schema:
             $ref: "../schemas/common/error-response.yaml#/ErrorResponse"
     '403':
-      description: Only the owner may update the note
+      description: The caller may not update this note
       content:
         application/json:
           schema:
@@ -94,7 +92,7 @@ put:
             $ref: "../schemas/common/error-response.yaml#/ErrorResponse"
 delete:
   operationId: deleteNote
-  summary: Delete a note (owner only)
+  summary: Move a note to the trash (owner or editor only)
   security:
     - BearerAuth: [ ]
   tags:
@@ -105,10 +103,11 @@ delete:
       required: true
       description: Unique identifier of the note
       schema:
-        type: string
+        type: integer
+        format: int64
   responses:
     '204':
-      description: Note deleted
+      description: Note moved to the trash
     '401':
       description: No valid JWT authentication token was provided
       content:
@@ -116,7 +115,7 @@ delete:
           schema:
             $ref: "../schemas/common/error-response.yaml#/ErrorResponse"
     '403':
-      description: Only the owner may delete the note
+      description: The caller may not delete this note
       content:
         application/json:
           schema:

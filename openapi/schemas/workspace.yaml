@@ -1,0 +1,109 @@
+WorkspaceRole:
+  type: string
+  description: A member's role within a workspace
+  enum:
+    - OWNER
+    - EDITOR
+    - VIEWER
+  example: EDITOR
+
+Workspace:
+  type: object
+  description: A collaborative workspace (space / group) that owns notes
+  required:
+    - id
+    - name
+    - role
+    - createdAt
+    - updatedAt
+  properties:
+    id:
+      type: integer
+      format: int64
+      example: 12
+    name:
+      type: string
+      example: "Dock 12 crew"
+    role:
+      $ref: "#/WorkspaceRole"
+    createdAt:
+      type: string
+      format: date-time
+      example: "2026-09-28T15:04:05Z"
+    updatedAt:
+      type: string
+      format: date-time
+      example: "2026-09-28T15:04:05Z"
+
+CreateWorkspaceRequest:
+  type: object
+  required:
+    - name
+  properties:
+    name:
+      type: string
+      minLength: 1
+      maxLength: 200
+      example: "Dock 12 crew"
+
+WorkspacesResponse:
+  type: object
+  required:
+    - workspaces
+  properties:
+    workspaces:
+      type: array
+      items:
+        $ref: "#/Workspace"
+
+WorkspaceMember:
+  type: object
+  description: A user's membership in a workspace
+  required:
+    - userId
+    - employeeNumber
+    - displayName
+    - role
+    - joinedAt
+  properties:
+    userId:
+      type: integer
+      format: int64
+      example: 55
+    employeeNumber:
+      type: string
+      description: External identity (JWT employeeNumber) of the member
+      example: "987654"
+    displayName:
+      type: string
+      example: "987654"
+    role:
+      $ref: "#/WorkspaceRole"
+    joinedAt:
+      type: string
+      format: date-time
+      example: "2026-09-28T15:04:05Z"
+
+WorkspaceMembersResponse:
+  type: object
+  required:
+    - members
+  properties:
+    members:
+      type: array
+      items:
+        $ref: "#/WorkspaceMember"
+
+AddMemberRequest:
+  type: object
+  required:
+    - employeeNumber
+  properties:
+    employeeNumber:
+      type: string
+      description: External identity of the user to add; the user is provisioned on first use
+      example: "987654"
+    role:
+      allOf:
+        - $ref: "#/WorkspaceRole"
+      default: VIEWER

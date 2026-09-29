@@ -18,6 +18,7 @@ import org.springframework.security.config.annotation.web.builders.HttpSecurity;
 import org.springframework.security.config.annotation.web.configuration.EnableWebSecurity;
 import org.springframework.security.config.annotation.web.configurers.AbstractHttpConfigurer;
 import org.springframework.security.config.annotation.web.configurers.HeadersConfigurer;
+import org.springframework.security.oauth2.jwt.JwtDecoder;
 import org.springframework.security.oauth2.jwt.NimbusJwtDecoder;
 import org.springframework.security.oauth2.server.resource.authentication.JwtAuthenticationProvider;
 import org.springframework.security.oauth2.server.resource.authentication.JwtIssuerAuthenticationManagerResolver;
@@ -49,7 +50,8 @@ public class SecurityConfig {
     Map<String, AuthenticationManager> managers = new LinkedHashMap<>();
     for (SecurityProperties.IssuerProperties issuer : properties.getTokenIssuers().values()) {
       NimbusJwtDecoder decoder = decoderFactory.create(issuer);
-      JwtAuthenticationProvider provider = new JwtAuthenticationProvider(decoder);
+      JwtDecoder keychainDecoder = new CachingJwtDecoder(decoder, properties.getTokenCache());
+      JwtAuthenticationProvider provider = new JwtAuthenticationProvider(keychainDecoder);
       managers.put(issuer.getUrl(), new ProviderManager(provider));
     }
     return new JwtIssuerAuthenticationManagerResolver(
@@ -57,9 +59,8 @@ public class SecurityConfig {
   }
 
   /**
-   * Local / demo profiles: no JWT required. This is the "bypass" - it lets us run and demo
-   * the service (and the H2 console) without an OKTA token. Deployed profiles fall through to
-   * {@link #defaultSecurityFilterChain} which requires a valid UI-issued JWT.
+   * Local / component-test profiles: permit every request without a JWT and allow the H2
+   * console to render (frame options and CSRF disabled).
    */
   @Bean
   @Order(1)

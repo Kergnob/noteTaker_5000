@@ -1,21 +1,25 @@
 Note:
   type: object
-  description: A note owned by a user
+  description: A note that lives inside a collaborative workspace
   required:
     - id
+    - workspaceId
     - title
-    - ownerId
+    - completed
+    - createdByUserId
     - createdAt
     - updatedAt
   properties:
     id:
-      type: string
+      type: integer
+      format: int64
       description: Unique identifier of the note
-      example: "3f2a9c6e-1b7d-4c2e-9a55-8e0f1d2c3b4a"
-    ownerId:
-      type: string
-      description: Identifier of the user who owns the note
-      example: "987654"
+      example: 1024
+    workspaceId:
+      type: integer
+      format: int64
+      description: Identifier of the workspace the note belongs to
+      example: 12
     title:
       type: string
       example: "Dock 12 inspection follow-up"
@@ -24,12 +28,13 @@ Note:
       example: "Re-check pallet wrap on HU 4471 before release."
     completed:
       type: boolean
-      description: True when the owner has marked the note complete
+      description: True when a member has marked the note complete
       example: false
-    shared:
-      type: boolean
-      description: True when this note was shared with the caller rather than owned by them
-      example: false
+    createdByUserId:
+      type: integer
+      format: int64
+      description: Identifier of the user who created the note
+      example: 55
     createdAt:
       type: string
       format: date-time
@@ -38,12 +43,24 @@ Note:
       type: string
       format: date-time
       example: "2026-09-28T15:04:05Z"
+    deletedAt:
+      type: string
+      format: date-time
+      nullable: true
+      description: When the note was moved to the trash; absent while active
+      example: "2026-09-29T08:00:00Z"
 
 CreateNoteRequest:
   type: object
   required:
+    - workspaceId
     - title
   properties:
+    workspaceId:
+      type: integer
+      format: int64
+      description: Workspace the note will be created in; the caller must be an owner or editor
+      example: 12
     title:
       type: string
       minLength: 1

@@ -26,9 +26,6 @@ springBoot {
 }
 
 repositories {
-  // Prefer the FedEx Nexus mirrors (approved public-artifact proxy), fall back to Maven Central.
-  maven { url 'https://nexus.prod.cloud.fedex.com:8443/nexus/repository/maven-public' }
-  maven { url 'https://nexus.prod.cloud.fedex.com:8443/nexus/repository/maven-central' }
   mavenCentral()
 }
 
@@ -38,14 +35,13 @@ dependencies {
   implementation 'org.springframework.boot:spring-boot-starter-data-jpa'
   implementation 'org.springframework.boot:spring-boot-starter-actuator'
   implementation 'org.springframework.boot:spring-boot-starter-validation'
-  implementation 'org.springframework.boot:spring-boot-starter-cache'
 
-  // Security: OAuth2 resource server validates OKTA (FIT-UI) and the self/bypass issuer JWTs
+  // Security: OAuth2 resource server validates OKTA (NoteTaker-UI) and the self/bypass issuer JWTs
   implementation 'org.springframework.boot:spring-boot-starter-security'
   implementation 'org.springframework.boot:spring-boot-starter-oauth2-resource-server'
   implementation 'com.nimbusds:nimbus-jose-jwt'
 
-  // Token/JWKS validation caching (SMS-style keychain: cached, refresh-ahead public keys)
+  // Caffeine backs both the refresh-ahead JWKS cache and the validated-token keychain
   implementation 'com.github.ben-manes.caffeine:caffeine'
 
   // Persistence

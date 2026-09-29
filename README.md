@@ -1,130 +1,128 @@
 # NoteTaker5000
 
-A lightweight, spec-first note-taking service shared amongst small teams. Users capture
-their work as **notes**, **save**/**update** them, mark them **complete**, and **share**
-notes with other users. Every note is owned by the authenticated user (identified by the
-`employeeNumber` claim on their JWT) and only the owner may modify or delete it.
+A lightweight note-taking service for small teams. People capture their work as **notes**
+inside shared **workspaces**, edit them, mark them **complete**, and **trash/restore** them.
+Who can do what is governed by each member's **role** in a workspace (OWNER / EDITOR / VIEWER).
 
-This README doubles as the living **project plan**. Deep-dive docs live in [`docs/`](docs/).
+Callers are identified by the `employeeNumber` on their JWT and provisioned automatically on
+first use — there is no separate sign-up step.
 
 ---
 
-## 1. Goals & scope (v1)
+## What you can do with it
 
-Start basic, build the spine correctly:
+- **Organize by workspace.** A workspace is a shared space/group that owns notes. A user only
+  ever sees notes in workspaces they belong to.
+- **Collaborate by role.** Add people to a workspace as `OWNER`, `EDITOR`, or `VIEWER`:
+  - `OWNER` — full control, including managing members.
+  - `EDITOR` — create, edit, complete, trash and restore notes.
+  - `VIEWER` — read-only access to the workspace's notes.
+- **Manage notes.** Create, read, list, search-by-title, update, and mark notes complete.
+- **Trash & restore.** Delete is a soft-delete to a per-workspace trash; notes can be listed
+  from the trash and restored.
+- **Safe concurrent edits.** Notes carry a version; a stale save is rejected (HTTP 409) rather
+  than silently overwriting someone else's change.
 
-- **Create** a note (owned by the caller).
-- **Read** a single note / **list** notes visible to the caller (owned + shared-with-me).
-- **Update** a note — **owner only** (enforced via the JWT `employeeNumber`).
-- **Complete** a note — mark it done and save it (owner only).
-- **Delete** a note — owner only.
-- **Share** a note with another user (READ/WRITE) and **unshare** — owner only.
+Future features (folders, tags, version history, real-time co-editing, …) are tracked in
+[`docs/ROADMAP.md`](docs/ROADMAP.md).
 
-Deliberately out of scope for v1 (noted for later): rich text/attachments, team/group
-objects, full-text search, soft-delete/audit history, outbound service integrations.
+---
 
-## 2. Tech stack
+## Using the API
 
-| Concern            | Choice                                                             |
-|--------------------|-------------------------------------------------------------------|
-| Language / runtime | **Java 21**                                                       |
-| Framework          | **Spring Boot 3.5.x** (Web MVC, Data JPA, Actuator, Validation)   |
-| API                | **OpenAPI-first** via `org.openapi.generator` (`spring`, delegate pattern) + springdoc Swagger UI |
-| Persistence        | **Hibernate/JPA**; HikariCP                                        |
-| Database           | **H2** (in-memory, Oracle-compat) locally · **Oracle** for integration/prod |
-| Migrations         | **Liquibase** (SQL changelogs; PKs & indexes called out)          |
-| Security           | **OAuth2 Resource Server**, multi-issuer JWT (OKTA FIT-UI + self/bypass issuer) |
-| Token/JWKS cache   | **Nimbus** cached, refresh-ahead JWKS + **Caffeine**              |
-| Mapping/boilerplate| **MapStruct** + **Lombok**                                        |
+The API is the product surface a client (e.g. a NoteTaker UI) integrates against. Every call
+except public URIs needs `Authorization: Bearer <JWT>`; the caller is read from the token's
+`employeeNumber` claim. All ids (`id`, `workspaceId`, `userId`) are numeric.
 
-## 3. Runtime profiles & database strategy
+The full contract, with request/response examples, lives in [`openapi/`](openapi/) and is
+served as **Swagger UI** at `/swagger-ui.html`.
 
-Mirrors the reference worklist service:
+### Workspaces & members
 
-- **`local` / `component-test`** → H2 in-memory in Oracle mode
-  (`jdbc:h2:mem:...;MODE=Oracle`), **Liquibase enabled**, H2 console on, config server off.
-- **default (integration/prod)** → **Oracle** via Hikari, `OracleDialect`,
-  Liquibase managed by the deployment pipeline (`spring.liquibase.enabled=false` in-app).
+| Method | Path                                        | Purpose                                            | Who         |
+|--------|---------------------------------------------|----------------------------------------------------|-------------|
+| POST   | `/api/v1/workspaces`                        | Create a workspace; caller becomes its first OWNER | any user    |
+| GET    | `/api/v1/workspaces`                        | List the workspaces the caller belongs to (with their role) | any user |
+| GET    | `/api/v1/workspaces/{id}/members`           | List a workspace's members                         | member      |
+| POST   | `/api/v1/workspaces/{id}/members`           | Add a member by `employeeNumber` + role, or update an existing member's role | OWNER |
+| DELETE | `/api/v1/workspaces/{id}/members/{userId}`  | Remove a member (the last OWNER cannot be removed) | OWNER       |
 
-The same JPA entities and Liquibase changelogs run against both databases, so local H2
-behaves like Oracle (identifiers, ordering, types).
+Adding a member returns `201` when the member is new and `200` when an existing member's role
+is updated. Members added by `employeeNumber` are provisioned automatically if they have never
+signed in.
 
-## 4. Security model
+### Notes
 
-OAuth2 **resource server** validating **Bearer JWTs** from multiple trusted issuers via
-`JwtIssuerAuthenticationManagerResolver`:
+| Method | Path                          | Purpose                                          | Who          |
+|--------|-------------------------------|--------------------------------------------------|--------------|
+| POST   | `/api/v1/notes`               | Create a note in a workspace                     | OWNER/EDITOR |
+| GET    | `/api/v1/notes`               | List active notes (paged; optional `workspaceId`, `searchTerm`) | member |
+| GET    | `/api/v1/notes/trash`         | List soft-deleted notes (the trash)              | member       |
+| GET    | `/api/v1/notes/{id}`          | Read a single note                               | member       |
+| PUT    | `/api/v1/notes/{id}`          | Update title/content and optionally completed    | OWNER/EDITOR |
+| POST   | `/api/v1/notes/{id}/complete` | Mark a note complete                             | OWNER/EDITOR |
+| POST   | `/api/v1/notes/{id}/restore`  | Restore a note from the trash                    | OWNER/EDITOR |
+| DELETE | `/api/v1/notes/{id}`          | Soft-delete a note to the trash                  | OWNER/EDITOR |
 
-1. **FIT-UI OKTA issuer** — real user tokens coming from the UI (same pattern the worklist
-   service uses to consume FIT-UI's token). The caller's identity is taken from the
-   **`employeeNumber`** claim and stored as the note `ownerId`.
-2. **Self / bypass issuer** — our own issuer so we can mint tokens and run tests without OKTA.
+`listNotes` returns newest-first and is paged via `pageNumber` (1-based, default 1) and
+`itemsPerPage` (default 20, max 200), alongside a `pageInfo` with `pagesCount` and
+`totalItems`. `searchTerm` filters case-insensitively on the title.
 
-Public URIs (`/actuator/health`, `/actuator/info`, Swagger, `/h2-console`) are permitted;
-everything else requires a valid JWT. See [`docs/SECURITY.md`](docs/SECURITY.md).
+### Payload shapes
 
-### Token / "keychain" caching
-Following the Ship Measurement Service (SMS) reference, we do **not** re-fetch or re-validate
-signing keys on every request. A cached, **refresh-ahead, outage-tolerant JWKS source**
-(Nimbus `JWKSourceBuilder`) backs each issuer's `JwtDecoder`, and Caffeine is wired for
-response/data caching. Note: SMS caches **JWKS public keys** (validation material), not raw
-bearer tokens — the same approach is used here. A true validated-token cache can be layered
-on later if needed.
+- **`Note`** — `{ id, workspaceId, title, content?, completed, createdByUserId, createdAt,
+  updatedAt, deletedAt? }`. `deletedAt` is absent while the note is active.
+- **`Workspace`** — `{ id, name, role, createdAt, updatedAt }`, where `role` is *your* role in
+  that workspace.
+- **Errors** — a consistent `ErrorResponse` body with the matching status: `400` invalid
+  request, `401` missing/invalid token, `403` insufficient role, `404` not found or not
+  visible, `409` concurrent-edit conflict.
 
-## 5. Database performance (Oracle)
+---
 
-The app must stay fast on Oracle. Keys/indexes are declared explicitly in the Liquibase
-changelogs (not left implicit):
+## For developers
 
-- `NOTE` — PK on `NOTE_ID`; index on `OWNER_ID` (list-my-notes); index on `UPDATED_TS`
-  (ordering / recent-first paging).
-- `NOTE_SHARE` — composite PK `(NOTE_ID, SHARED_WITH_USER_ID)`; index on
-  `SHARED_WITH_USER_ID` (find notes-shared-with-me); FK `NOTE_ID → NOTE(NOTE_ID)`.
+### Tech stack
 
-See [`docs/DATA-MODEL.md`](docs/DATA-MODEL.md).
+| Concern            | Choice                                                                      |
+|--------------------|-----------------------------------------------------------------------------|
+| Language / runtime | **Java 21**                                                                 |
+| Framework          | **Spring Boot 3.5** (Web MVC, Data JPA, Actuator, Validation)               |
+| API                | **OpenAPI-first** via `org.openapi.generator` (Spring delegate) + Swagger UI |
+| Persistence        | **Hibernate/JPA**, HikariCP; **Liquibase** migrations (explicit PKs/indexes) |
+| Database           | **H2** (in-memory, Oracle mode) locally · **Oracle** when deployed          |
+| Security           | **OAuth2 resource server**, multi-issuer JWT with cached refresh-ahead JWKS + a validated-token keychain |
+| Mapping            | **MapStruct** + **Lombok**                                                  |
+| Tests              | **Spock** unit specs + a component-test package that boots the app over HTTP |
 
-## 6. API surface (v1)
-
-| Method | Path                                   | Operation        | Access        |
-|--------|----------------------------------------|------------------|---------------|
-| POST   | `/api/v1/notes`                        | `createNote`     | any user      |
-| GET    | `/api/v1/notes`                        | `listNotes`      | any user      |
-| GET    | `/api/v1/notes/{id}`                    | `getNote`        | owner/shared  |
-| PUT    | `/api/v1/notes/{id}`                    | `updateNote`     | owner         |
-| POST   | `/api/v1/notes/{id}/complete`          | `completeNote`   | owner         |
-| DELETE | `/api/v1/notes/{id}`                   | `deleteNote`     | owner         |
-| GET    | `/api/v1/notes/{id}/shares`            | `listNoteShares` | owner         |
-| POST   | `/api/v1/notes/{id}/shares`            | `shareNote`      | owner         |
-| DELETE | `/api/v1/notes/{id}/shares/{userId}`   | `unshareNote`    | owner         |
-
-The OpenAPI spec (with request/response examples) lives in [`openapi/`](openapi/). How the
-spec is built and **how to extend the API** is documented in [`docs/OPENAPI.md`](docs/OPENAPI.md).
-
-## 7. Building & running
+### Run & test
 
 Requires **JDK 21** (`JAVA_HOME` → a JDK 21).
 
 ```bash
-# Generate API sources + compile + test
+# Generate API sources, compile, and run all tests
 ./gradlew build
 
-# Run locally on H2 (Liquibase creates the schema, H2 console at /h2-console)
+# Run locally on H2 (Liquibase creates the schema; H2 console at /h2-console)
 ./gradlew bootRun --args='--spring.profiles.active=local'
 ```
 
 Swagger UI: `http://localhost:8080/swagger-ui.html` · OpenAPI JSON: `/v3/api-docs`.
 
-## 8. Repository
+### Profiles & auth
 
-```bash
-git init
-git add .
-git commit -m "Initial NoteTaker5000 scaffold"
-git remote add origin https://github.com/1671437_fedex/noteTaker5000.git
-```
+- **`local` / `component-test`** → H2 in Oracle mode, Liquibase enabled, **JWT validation
+  bypassed**. Impersonate a user with the `X-Employee-Number: <id>` header — handy for local
+  UI development and tests.
+- **default (deployed)** → Oracle datasource; JWTs are validated against the configured
+  issuer(s), and the caller is taken from the `employeeNumber` claim.
 
-(Push is intentionally left to a human; nothing is pushed automatically.)
+### Data model
 
-## 9. Plan / task tracking
+Four tables in schema `NOTETAKER` (identity PKs, explicit indexes, corporate DANSAC naming):
 
-Implementation is split across the packages described in [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md).
-Status of the initial build-out is tracked in [`docs/PLAN.md`](docs/PLAN.md).
+- `APP_USER` — a provisioned user (`USER_ID`, unique `EMP_NBR`).
+- `WORKSPACE` — a shared space that owns notes.
+- `WORKSPACE_MEMBER` — a user's membership + `ROLE_CD` in a workspace (unique per user+workspace).
+- `NOTE` — belongs to a workspace; `COMPLETED_FLG`, optimistic-lock `VERS_NBR`, soft-delete
+  `DEL_TMSTP` (null = active).

@@ -1,7 +1,5 @@
 package com.notetaker.exception
 
-import com.notetaker.notes.v1.exception.NoteAccessDeniedException
-import com.notetaker.notes.v1.exception.NoteNotFoundException
 import com.notetaker.security.UserIdMissingException
 import org.springframework.orm.ObjectOptimisticLockingFailureException
 import org.springframework.security.core.AuthenticationException
@@ -25,19 +23,19 @@ class GlobalExceptionHandlerSpec extends Specification {
     body.requestId != null
   }
 
-  def "note-not-found maps to 404"() {
+  def "not-found maps to 404"() {
     when:
-    def body = handler.handleNotFound(new NoteNotFoundException('n1'))
+    def body = handler.handleNotFound(new NotFoundException('Note 5 was not found'))
 
     then:
     body.statusCode == 404
     body.error == 'NOT_FOUND'
-    body.message == 'Note n1 not found'
+    body.message == 'Note 5 was not found'
   }
 
-  def "note-access-denied maps to 403"() {
+  def "forbidden maps to 403"() {
     when:
-    def body = handler.handleForbidden(new NoteAccessDeniedException('nope'))
+    def body = handler.handleForbidden(new ForbiddenException('nope'))
 
     then:
     body.statusCode == 403

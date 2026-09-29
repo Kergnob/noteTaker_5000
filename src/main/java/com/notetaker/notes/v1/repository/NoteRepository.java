@@ -7,14 +7,28 @@ import org.springframework.data.jpa.repository.JpaRepository;
 import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
 
-public interface NoteRepository extends JpaRepository<NoteEntity, String> {
+public interface NoteRepository extends JpaRepository<NoteEntity, Long> {
 
-  Page<NoteEntity> findByOwnerId(String ownerId, Pageable pageable);
+  // A note is visible to a user when it lives in a workspace they belong to. Optional
+  // workspaceId / title filters are applied only when non-null.
+  String VISIBLE =
+      " n.workspaceId in (select m.workspaceId from"
+          + " com.notetaker.notes.v1.repository.entity.WorkspaceMemberEntity m where m.userId = :userId)"
+          + " and (:workspaceId is null or n.workspaceId = :workspaceId)";
 
-  @Query("select n from com.notetaker.notes.v1.repository.entity.NoteEntity n where n.ownerId = :userId or n.id in (select s.noteId from com.notetaker.notes.v1.repository.entity.NoteShareEntity s where s.sharedWithUserId = :userId)")
-  Page<NoteEntity> findVisibleToUser(@Param("userId") String userId, Pageable pageable);
+  @Query("select n from com.notetaker.notes.v1.repository.entity.NoteEntity n"
+      + " where n.deletedAt is null and" + VISIBLE
+      + " and (:title is null or lower(n.title) like lower(concat('%', :title, '%')))")
+  Page<NoteEntity> findActiveVisible(
+      @Param("userId") Long userId,
+      @Param("workspaceId") Long workspaceId,
+      @Param("title") String title,
+      Pageable pageable);
 
-  @Query("select n from com.notetaker.notes.v1.repository.entity.NoteEntity n where (n.ownerId = :userId or n.id in (select s.noteId from com.notetaker.notes.v1.repository.entity.NoteShareEntity s where s.sharedWithUserId = :userId)) and lower(n.title) like lower(concat('%', :title, '%'))")
-  Page<NoteEntity> findVisibleToUserAndTitle(
-      @Param("userId") String userId, @Param("title") String title, Pageable pageable);
+  @Query("select n from com.notetaker.notes.v1.repository.entity.NoteEntity n"
+      + " where n.deletedAt is not null and" + VISIBLE)
+  Page<NoteEntity> findTrashedVisible(
+      @Param("userId") Long userId,
+      @Param("workspaceId") Long workspaceId,
+      Pageable pageable);
 }

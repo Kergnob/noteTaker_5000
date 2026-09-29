@@ -1,166 +1,193 @@
 package com.notetaker.notes.v1.service
 
-import com.notetaker.notes.v1.exception.NoteAccessDeniedException
-import com.notetaker.notes.v1.exception.NoteNotFoundException
+import com.notetaker.exception.ForbiddenException
+import com.notetaker.exception.NotFoundException
 import com.notetaker.notes.v1.repository.NoteRepository
-import com.notetaker.notes.v1.repository.NoteShareRepository
+import com.notetaker.notes.v1.repository.WorkspaceMemberRepository
+import com.notetaker.notes.v1.repository.entity.AppUserEntity
 import com.notetaker.notes.v1.repository.entity.NoteEntity
-import com.notetaker.notes.v1.repository.entity.NoteShareEntity
-import com.notetaker.notes.v1.repository.entity.NoteShareId
-import com.notetaker.security.CurrentUserService
-import org.springframework.data.domain.Page
+import com.notetaker.notes.v1.repository.entity.WorkspaceMemberEntity
 import org.springframework.data.domain.PageImpl
-import org.springframework.data.domain.PageRequest
 import org.springframework.data.domain.Pageable
 import org.springframework.data.domain.Sort
 import spock.lang.Specification
 import spock.lang.Subject
 
+import java.time.Instant
+
 class NoteServiceImplSpec extends Specification {
 
   NoteRepository noteRepository = Mock()
-  NoteShareRepository noteShareRepository = Mock()
-  CurrentUserService currentUserService = Mock()
+  WorkspaceMemberRepository memberRepository = Mock()
+  UserService userService = Mock()
 
   @Subject
-  NoteServiceImpl service = new NoteServiceImpl(noteRepository, noteShareRepository, currentUserService)
+  NoteServiceImpl service = new NoteServiceImpl(noteRepository, memberRepository, userService)
 
-  private static NoteEntity note(String id, String owner) {
+  private static AppUserEntity user(long id) {
+    def u = new AppUserEntity()
+    u.id = id
+    return u
+  }
+
+  private static NoteEntity note(long id, long workspaceId, long creator) {
     def n = new NoteEntity()
     n.id = id
-    n.ownerId = owner
+    n.workspaceId = workspaceId
+    n.createdByUserId = creator
     n.title = 'title'
     n.content = 'content'
     n.completed = false
     return n
   }
 
-  def "create assigns a UUID, current owner, defaults completed=false and persists"() {
+  private static WorkspaceMemberEntity member(long workspaceId, long userId, String role) {
+    new WorkspaceMemberEntity(workspaceId, userId, role)
+  }
+
+  def "create persists a note for an editor with defaults"() {
     given:
-    currentUserService.getCurrentUserId() >> '111'
+    userService.currentUser() >> user(1)
+    memberRepository.findByWorkspaceIdAndUserId(10L, 1L) >> Optional.of(member(10L, 1L, role))
 
     when:
-    def result = service.create('My title', 'Body')
+    def result = service.create(10L, 'My title', 'Body')
 
     then:
     1 * noteRepository.save(_ as NoteEntity) >> { NoteEntity n -> n }
-    result.id ==~ /[0-9a-f\-]{36}/
-    result.ownerId == '111'
+    result.workspaceId == 10L
+    result.createdByUserId == 1L
     result.title == 'My title'
     result.content == 'Body'
     !result.completed
+
+    where:
+    role << ['OWNER', 'EDITOR']
   }
 
-  def "create tolerates null content"() {
+  def "create is forbidden for a viewer and never saves"() {
     given:
-    currentUserService.getCurrentUserId() >> '111'
+    userService.currentUser() >> user(1)
+    memberRepository.findByWorkspaceIdAndUserId(10L, 1L) >> Optional.of(member(10L, 1L, 'VIEWER'))
 
     when:
-    def result = service.create('T', null)
+    service.create(10L, 'T', 'B')
 
     then:
-    1 * noteRepository.save(_ as NoteEntity) >> { NoteEntity n -> n }
-    result.content == null
+    thrown(ForbiddenException)
+    0 * noteRepository.save(_)
   }
 
-  def "get returns the note when the caller is the owner"() {
+  def "create is forbidden for a non-member"() {
     given:
-    def entity = note('n1', '111')
-    noteRepository.findById('n1') >> Optional.of(entity)
-    currentUserService.getCurrentUserId() >> '111'
+    userService.currentUser() >> user(1)
+    memberRepository.findByWorkspaceIdAndUserId(10L, 1L) >> Optional.empty()
 
     when:
-    def result = service.get('n1')
+    service.create(10L, 'T', 'B')
+
+    then:
+    thrown(ForbiddenException)
+    0 * noteRepository.save(_)
+  }
+
+  def "get returns the note for any member including a viewer"() {
+    given:
+    def entity = note(5L, 10L, 2L)
+    noteRepository.findById(5L) >> Optional.of(entity)
+    userService.currentUser() >> user(1)
+    memberRepository.findByWorkspaceIdAndUserId(10L, 1L) >> Optional.of(member(10L, 1L, 'VIEWER'))
+
+    when:
+    def result = service.get(5L)
 
     then:
     result.is(entity)
-    0 * noteShareRepository.existsById(_)
   }
 
-  def "get returns the note when it is shared with the caller"() {
+  def "get is forbidden when the caller is not a member of the note's workspace"() {
     given:
-    def entity = note('n1', '111')
-    noteRepository.findById('n1') >> Optional.of(entity)
-    currentUserService.getCurrentUserId() >> '222'
-    noteShareRepository.existsById(new NoteShareId('n1', '222')) >> true
+    noteRepository.findById(5L) >> Optional.of(note(5L, 10L, 2L))
+    userService.currentUser() >> user(9)
+    memberRepository.findByWorkspaceIdAndUserId(10L, 9L) >> Optional.empty()
 
     when:
-    def result = service.get('n1')
+    service.get(5L)
 
     then:
-    result.is(entity)
+    thrown(ForbiddenException)
   }
 
-  def "get throws NoteAccessDenied when caller is neither owner nor shared-with"() {
+  def "get throws NotFound when the note does not exist"() {
     given:
-    def entity = note('n1', '111')
-    noteRepository.findById('n1') >> Optional.of(entity)
-    currentUserService.getCurrentUserId() >> '999'
-    noteShareRepository.existsById(_ as NoteShareId) >> false
+    noteRepository.findById(404L) >> Optional.empty()
 
     when:
-    service.get('n1')
+    service.get(404L)
 
     then:
-    thrown(NoteAccessDeniedException)
+    thrown(NotFoundException)
   }
 
-  def "get throws NoteNotFound when the note does not exist"() {
+  def "list without a search term queries active notes sorted by updatedAt desc"() {
     given:
-    noteRepository.findById('missing') >> Optional.empty()
+    userService.currentUser() >> user(1)
+    def page = new PageImpl([note(1L, 10L, 1L)])
 
     when:
-    service.get('missing')
+    def result = service.list(10L, 1, 20, searchTerm)
 
     then:
-    thrown(NoteNotFoundException)
-  }
-
-  def "list without a search term queries the visible-to-user finder, sorted by updatedAt desc"() {
-    given:
-    currentUserService.getCurrentUserId() >> '111'
-    def page = new PageImpl([note('n1', '111')])
-
-    when:
-    def result = service.list(1, 20, searchTerm)
-
-    then:
-    1 * noteRepository.findVisibleToUser('111', { Pageable p ->
+    1 * noteRepository.findActiveVisible(1L, 10L, null, { Pageable p ->
       p.pageNumber == 0 &&
         p.pageSize == 20 &&
         p.sort.getOrderFor('updatedAt').direction == Sort.Direction.DESC
     }) >> page
-    0 * noteRepository.findVisibleToUserAndTitle(*_)
     result.content.size() == 1
 
     where:
     searchTerm << [null, '', '   ']
   }
 
-  def "list with a search term queries the title finder"() {
+  def "list with a search term passes the term through"() {
     given:
-    currentUserService.getCurrentUserId() >> '111'
-    def page = new PageImpl([note('n1', '111')])
+    userService.currentUser() >> user(1)
+    def page = new PageImpl([note(1L, 10L, 1L)])
 
     when:
-    def result = service.list(2, 5, 'dock')
+    def result = service.list(null, 2, 5, 'dock')
 
     then:
-    1 * noteRepository.findVisibleToUserAndTitle('111', 'dock', { Pageable p ->
+    1 * noteRepository.findActiveVisible(1L, null, 'dock', { Pageable p ->
       p.pageNumber == 1 && p.pageSize == 5
     }) >> page
-    0 * noteRepository.findVisibleToUser(*_)
     result.content.size() == 1
   }
 
-  def "update mutates owner-owned note and saves"() {
+  def "listTrash queries trashed notes sorted by deletedAt desc"() {
     given:
-    def entity = note('n1', '111')
-    noteRepository.findById('n1') >> Optional.of(entity)
-    currentUserService.getCurrentUserId() >> '111'
+    userService.currentUser() >> user(1)
+    def page = new PageImpl([note(1L, 10L, 1L)])
 
     when:
-    def result = service.update('n1', 'new title', 'new body', true)
+    def result = service.listTrash(10L, 1, 20)
+
+    then:
+    1 * noteRepository.findTrashedVisible(1L, 10L, { Pageable p ->
+      p.sort.getOrderFor('deletedAt').direction == Sort.Direction.DESC
+    }) >> page
+    result.content.size() == 1
+  }
+
+  def "update mutates an editable note and saves"() {
+    given:
+    def entity = note(5L, 10L, 2L)
+    noteRepository.findById(5L) >> Optional.of(entity)
+    userService.currentUser() >> user(1)
+    memberRepository.findByWorkspaceIdAndUserId(10L, 1L) >> Optional.of(member(10L, 1L, 'EDITOR'))
+
+    when:
+    def result = service.update(5L, 'new title', 'new body', true)
 
     then:
     1 * noteRepository.save(entity) >> entity
@@ -171,223 +198,116 @@ class NoteServiceImplSpec extends Specification {
 
   def "update leaves completed unchanged when the flag is null"() {
     given:
-    def entity = note('n1', '111')
+    def entity = note(5L, 10L, 2L)
     entity.completed = true
-    noteRepository.findById('n1') >> Optional.of(entity)
-    currentUserService.getCurrentUserId() >> '111'
+    noteRepository.findById(5L) >> Optional.of(entity)
+    userService.currentUser() >> user(1)
+    memberRepository.findByWorkspaceIdAndUserId(10L, 1L) >> Optional.of(member(10L, 1L, 'OWNER'))
 
     when:
-    def result = service.update('n1', 't', 'c', null)
+    def result = service.update(5L, 't', 'c', null)
 
     then:
     1 * noteRepository.save(entity) >> entity
     result.completed
   }
 
-  def "update by a non-owner is forbidden and never saves"() {
+  def "update by a viewer is forbidden and never saves"() {
     given:
-    noteRepository.findById('n1') >> Optional.of(note('n1', '111'))
-    currentUserService.getCurrentUserId() >> '222'
+    noteRepository.findById(5L) >> Optional.of(note(5L, 10L, 2L))
+    userService.currentUser() >> user(1)
+    memberRepository.findByWorkspaceIdAndUserId(10L, 1L) >> Optional.of(member(10L, 1L, 'VIEWER'))
 
     when:
-    service.update('n1', 't', 'c', null)
+    service.update(5L, 't', 'c', null)
 
     then:
-    thrown(NoteAccessDeniedException)
+    thrown(ForbiddenException)
     0 * noteRepository.save(_)
   }
 
-  def "complete marks the owner-owned note done"() {
+  def "complete marks an editable note done"() {
     given:
-    def entity = note('n1', '111')
-    noteRepository.findById('n1') >> Optional.of(entity)
-    currentUserService.getCurrentUserId() >> '111'
+    def entity = note(5L, 10L, 2L)
+    noteRepository.findById(5L) >> Optional.of(entity)
+    userService.currentUser() >> user(1)
+    memberRepository.findByWorkspaceIdAndUserId(10L, 1L) >> Optional.of(member(10L, 1L, 'EDITOR'))
 
     when:
-    def result = service.complete('n1')
+    def result = service.complete(5L)
 
     then:
     1 * noteRepository.save(entity) >> entity
     result.completed
   }
 
-  def "complete by a non-owner is forbidden"() {
+  def "restore clears the deletedAt timestamp"() {
     given:
-    noteRepository.findById('n1') >> Optional.of(note('n1', '111'))
-    currentUserService.getCurrentUserId() >> '222'
+    def entity = note(5L, 10L, 2L)
+    entity.deletedAt = Instant.now()
+    noteRepository.findById(5L) >> Optional.of(entity)
+    userService.currentUser() >> user(1)
+    memberRepository.findByWorkspaceIdAndUserId(10L, 1L) >> Optional.of(member(10L, 1L, 'EDITOR'))
 
     when:
-    service.complete('n1')
+    def result = service.restore(5L)
 
     then:
-    thrown(NoteAccessDeniedException)
+    1 * noteRepository.save(entity) >> entity
+    result.deletedAt == null
+  }
+
+  def "delete soft-deletes an active note by stamping deletedAt"() {
+    given:
+    def entity = note(5L, 10L, 2L)
+    noteRepository.findById(5L) >> Optional.of(entity)
+    userService.currentUser() >> user(1)
+    memberRepository.findByWorkspaceIdAndUserId(10L, 1L) >> Optional.of(member(10L, 1L, 'OWNER'))
+
+    when:
+    service.delete(5L)
+
+    then:
+    1 * noteRepository.save({ NoteEntity n -> n.deletedAt != null }) >> { NoteEntity n -> n }
+  }
+
+  def "delete is idempotent for an already-trashed note"() {
+    given:
+    def entity = note(5L, 10L, 2L)
+    entity.deletedAt = Instant.now()
+    noteRepository.findById(5L) >> Optional.of(entity)
+    userService.currentUser() >> user(1)
+    memberRepository.findByWorkspaceIdAndUserId(10L, 1L) >> Optional.of(member(10L, 1L, 'OWNER'))
+
+    when:
+    service.delete(5L)
+
+    then:
     0 * noteRepository.save(_)
   }
 
-  def "delete removes shares then the note for the owner"() {
+  def "delete by a viewer is forbidden and touches nothing"() {
     given:
-    noteRepository.findById('n1') >> Optional.of(note('n1', '111'))
-    currentUserService.getCurrentUserId() >> '111'
+    noteRepository.findById(5L) >> Optional.of(note(5L, 10L, 2L))
+    userService.currentUser() >> user(1)
+    memberRepository.findByWorkspaceIdAndUserId(10L, 1L) >> Optional.of(member(10L, 1L, 'VIEWER'))
 
     when:
-    service.delete('n1')
+    service.delete(5L)
 
     then:
-    1 * noteShareRepository.deleteByNoteId('n1')
-    1 * noteRepository.deleteById('n1')
+    thrown(ForbiddenException)
+    0 * noteRepository.save(_)
   }
 
-  def "delete by a non-owner is forbidden and touches nothing"() {
+  def "delete of a missing note throws NotFound"() {
     given:
-    noteRepository.findById('n1') >> Optional.of(note('n1', '111'))
-    currentUserService.getCurrentUserId() >> '222'
+    noteRepository.findById(404L) >> Optional.empty()
 
     when:
-    service.delete('n1')
+    service.delete(404L)
 
     then:
-    thrown(NoteAccessDeniedException)
-    0 * noteShareRepository.deleteByNoteId(_)
-    0 * noteRepository.deleteById(_)
-  }
-
-  def "delete of a missing note throws NoteNotFound"() {
-    given:
-    noteRepository.findById('missing') >> Optional.empty()
-
-    when:
-    service.delete('missing')
-
-    then:
-    thrown(NoteNotFoundException)
-  }
-
-  def "share persists a #permission share for the owner"() {
-    given:
-    noteRepository.findById('n1') >> Optional.of(note('n1', '111'))
-    currentUserService.getCurrentUserId() >> '111'
-
-    when:
-    def result = service.share('n1', '222', permission)
-
-    then:
-    1 * noteShareRepository.save({ NoteShareEntity s ->
-      s.noteId == 'n1' && s.sharedWithUserId == '222' && s.permission == expected
-    }) >> { NoteShareEntity s -> s }
-    result.permission == expected
-
-    where:
-    permission | expected
-    'READ'     | 'READ'
-    'WRITE'    | 'WRITE'
-    ' WRITE '  | 'WRITE'
-  }
-
-  def "share defaults to READ when permission is #permission"() {
-    given:
-    noteRepository.findById('n1') >> Optional.of(note('n1', '111'))
-    currentUserService.getCurrentUserId() >> '111'
-
-    when:
-    def result = service.share('n1', '222', permission)
-
-    then:
-    1 * noteShareRepository.save({ NoteShareEntity s -> s.permission == 'READ' }) >> { NoteShareEntity s -> s }
-    result.permission == 'READ'
-
-    where:
-    permission << [null, '', '   ']
-  }
-
-  def "share rejects an invalid permission with 400-mapped IllegalArgument"() {
-    given:
-    noteRepository.findById('n1') >> Optional.of(note('n1', '111'))
-    currentUserService.getCurrentUserId() >> '111'
-
-    when:
-    service.share('n1', '222', 'ADMIN')
-
-    then:
-    thrown(IllegalArgumentException)
-    0 * noteShareRepository.save(_)
-  }
-
-  def "share by a non-owner is forbidden"() {
-    given:
-    noteRepository.findById('n1') >> Optional.of(note('n1', '111'))
-    currentUserService.getCurrentUserId() >> '222'
-
-    when:
-    service.share('n1', '333', 'READ')
-
-    then:
-    thrown(NoteAccessDeniedException)
-    0 * noteShareRepository.save(_)
-  }
-
-  def "listShares returns the note's shares for the owner"() {
-    given:
-    noteRepository.findById('n1') >> Optional.of(note('n1', '111'))
-    currentUserService.getCurrentUserId() >> '111'
-    def shares = [new NoteShareEntity('n1', '222', 'READ')]
-
-    when:
-    def result = service.listShares('n1')
-
-    then:
-    1 * noteShareRepository.findByNoteId('n1') >> shares
-    result == shares
-  }
-
-  def "listShares by a non-owner is forbidden"() {
-    given:
-    noteRepository.findById('n1') >> Optional.of(note('n1', '111'))
-    currentUserService.getCurrentUserId() >> '222'
-
-    when:
-    service.listShares('n1')
-
-    then:
-    thrown(NoteAccessDeniedException)
-    0 * noteShareRepository.findByNoteId(_)
-  }
-
-  def "unshare deletes an existing share for the owner"() {
-    given:
-    noteRepository.findById('n1') >> Optional.of(note('n1', '111'))
-    currentUserService.getCurrentUserId() >> '111'
-    noteShareRepository.existsById(new NoteShareId('n1', '222')) >> true
-
-    when:
-    service.unshare('n1', '222')
-
-    then:
-    1 * noteShareRepository.deleteById(new NoteShareId('n1', '222'))
-  }
-
-  def "unshare is a no-op when the share does not exist"() {
-    given:
-    noteRepository.findById('n1') >> Optional.of(note('n1', '111'))
-    currentUserService.getCurrentUserId() >> '111'
-    noteShareRepository.existsById(_ as NoteShareId) >> false
-
-    when:
-    service.unshare('n1', '222')
-
-    then:
-    0 * noteShareRepository.deleteById(_)
-  }
-
-  def "unshare by a non-owner is forbidden"() {
-    given:
-    noteRepository.findById('n1') >> Optional.of(note('n1', '111'))
-    currentUserService.getCurrentUserId() >> '222'
-
-    when:
-    service.unshare('n1', '333')
-
-    then:
-    thrown(NoteAccessDeniedException)
-    0 * noteShareRepository.deleteById(_)
+    thrown(NotFoundException)
   }
 }

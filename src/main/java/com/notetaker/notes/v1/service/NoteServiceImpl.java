@@ -1,16 +1,12 @@
 package com.notetaker.notes.v1.service;
 
-import com.notetaker.notes.v1.exception.NoteAccessDeniedException;
-import com.notetaker.notes.v1.exception.NoteNotFoundException;
+import com.notetaker.exception.ForbiddenException;
+import com.notetaker.exception.NotFoundException;
 import com.notetaker.notes.v1.repository.NoteRepository;
-import com.notetaker.notes.v1.repository.NoteShareRepository;
+import com.notetaker.notes.v1.repository.WorkspaceMemberRepository;
 import com.notetaker.notes.v1.repository.entity.NoteEntity;
-import com.notetaker.notes.v1.repository.entity.NoteShareEntity;
-import com.notetaker.notes.v1.repository.entity.NoteShareId;
-import com.notetaker.security.CurrentUserService;
-import java.util.List;
-import java.util.Set;
-import java.util.UUID;
+import com.notetaker.notes.v1.repository.entity.WorkspaceMemberEntity;
+import java.time.Instant;
 import lombok.RequiredArgsConstructor;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.PageRequest;
@@ -24,18 +20,17 @@ import org.springframework.util.StringUtils;
 @Transactional
 public class NoteServiceImpl implements NoteService {
 
-  private static final String READ_PERMISSION = "READ";
-  private static final Set<String> VALID_PERMISSIONS = Set.of(READ_PERMISSION, "WRITE");
-
   private final NoteRepository noteRepository;
-  private final NoteShareRepository noteShareRepository;
-  private final CurrentUserService currentUserService;
+  private final WorkspaceMemberRepository memberRepository;
+  private final UserService userService;
 
   @Override
-  public NoteEntity create(String title, String content) {
+  public NoteEntity create(Long workspaceId, String title, String content) {
+    Long userId = currentUserId();
+    requireEdit(workspaceId, userId);
     NoteEntity note = new NoteEntity();
-    note.setId(UUID.randomUUID().toString());
-    note.setOwnerId(currentUserService.getCurrentUserId());
+    note.setWorkspaceId(workspaceId);
+    note.setCreatedByUserId(userId);
     note.setTitle(title);
     note.setContent(content);
     note.setCompleted(false);
@@ -44,35 +39,32 @@ public class NoteServiceImpl implements NoteService {
 
   @Override
   @Transactional(readOnly = true)
-  public NoteEntity get(String id) {
-    NoteEntity note = noteRepository.findById(id)
-        .orElseThrow(() -> new NoteNotFoundException(id));
-    String currentUserId = currentUserService.getCurrentUserId();
-
-    if (note.getOwnerId().equals(currentUserId)
-        || noteShareRepository.existsById(new NoteShareId(id, currentUserId))) {
-      return note;
-    }
-
-    throw new NoteAccessDeniedException("User may not access note " + id);
+  public NoteEntity get(Long id) {
+    NoteEntity note = find(id);
+    requireMember(note.getWorkspaceId(), currentUserId());
+    return note;
   }
 
   @Override
   @Transactional(readOnly = true)
-  public Page<NoteEntity> list(int pageNumber, int itemsPerPage, String searchTerm) {
-    String currentUserId = currentUserService.getCurrentUserId();
-    PageRequest pageable = PageRequest.of(pageNumber - 1, itemsPerPage, Sort.by(Sort.Direction.DESC, "updatedAt"));
-
-    if (!StringUtils.hasText(searchTerm)) {
-      return noteRepository.findVisibleToUser(currentUserId, pageable);
-    }
-
-    return noteRepository.findVisibleToUserAndTitle(currentUserId, searchTerm, pageable);
+  public Page<NoteEntity> list(Long workspaceId, int pageNumber, int itemsPerPage, String searchTerm) {
+    PageRequest pageable = PageRequest.of(
+        pageNumber - 1, itemsPerPage, Sort.by(Sort.Direction.DESC, "updatedAt"));
+    String title = StringUtils.hasText(searchTerm) ? searchTerm : null;
+    return noteRepository.findActiveVisible(currentUserId(), workspaceId, title, pageable);
   }
 
   @Override
-  public NoteEntity update(String id, String title, String content, Boolean completed) {
-    NoteEntity note = requireOwner(id);
+  @Transactional(readOnly = true)
+  public Page<NoteEntity> listTrash(Long workspaceId, int pageNumber, int itemsPerPage) {
+    PageRequest pageable = PageRequest.of(
+        pageNumber - 1, itemsPerPage, Sort.by(Sort.Direction.DESC, "deletedAt"));
+    return noteRepository.findTrashedVisible(currentUserId(), workspaceId, pageable);
+  }
+
+  @Override
+  public NoteEntity update(Long id, String title, String content, Boolean completed) {
+    NoteEntity note = requireEditable(id);
     note.setTitle(title);
     note.setContent(content);
     if (completed != null) {
@@ -82,53 +74,53 @@ public class NoteServiceImpl implements NoteService {
   }
 
   @Override
-  public NoteEntity complete(String id) {
-    NoteEntity note = requireOwner(id);
+  public NoteEntity complete(Long id) {
+    NoteEntity note = requireEditable(id);
     note.setCompleted(true);
     return noteRepository.save(note);
   }
 
   @Override
-  public void delete(String id) {
-    requireOwner(id);
-    noteShareRepository.deleteByNoteId(id);
-    noteRepository.deleteById(id);
+  public NoteEntity restore(Long id) {
+    NoteEntity note = requireEditable(id);
+    note.setDeletedAt(null);
+    return noteRepository.save(note);
   }
 
   @Override
-  public NoteShareEntity share(String id, String sharedWithUserId, String permission) {
-    requireOwner(id);
-    String resolvedPermission = StringUtils.hasText(permission) ? permission.trim() : READ_PERMISSION;
-    if (!VALID_PERMISSIONS.contains(resolvedPermission)) {
-      throw new IllegalArgumentException("Permission must be READ or WRITE");
-    }
-
-    return noteShareRepository.save(new NoteShareEntity(id, sharedWithUserId, resolvedPermission));
-  }
-
-  @Override
-  @Transactional(readOnly = true)
-  public List<NoteShareEntity> listShares(String id) {
-    requireOwner(id);
-    return noteShareRepository.findByNoteId(id);
-  }
-
-  @Override
-  public void unshare(String id, String userId) {
-    requireOwner(id);
-    NoteShareId key = new NoteShareId(id, userId);
-    if (noteShareRepository.existsById(key)) {
-      noteShareRepository.deleteById(key);
+  public void delete(Long id) {
+    NoteEntity note = requireEditable(id);
+    if (note.getDeletedAt() == null) {
+      note.setDeletedAt(Instant.now());
+      noteRepository.save(note);
     }
   }
 
-  private NoteEntity requireOwner(String id) {
-    NoteEntity note = noteRepository.findById(id)
-        .orElseThrow(() -> new NoteNotFoundException(id));
-    String currentUserId = currentUserService.getCurrentUserId();
-    if (!note.getOwnerId().equals(currentUserId)) {
-      throw new NoteAccessDeniedException("Only the owner may modify note " + id);
-    }
+  private NoteEntity find(Long id) {
+    return noteRepository.findById(id)
+        .orElseThrow(() -> new NotFoundException("Note " + id + " was not found"));
+  }
+
+  /** Loads the note and asserts the caller may edit its workspace. */
+  private NoteEntity requireEditable(Long id) {
+    NoteEntity note = find(id);
+    requireEdit(note.getWorkspaceId(), currentUserId());
     return note;
+  }
+
+  private WorkspaceMemberEntity requireMember(Long workspaceId, Long userId) {
+    return memberRepository.findByWorkspaceIdAndUserId(workspaceId, userId)
+        .orElseThrow(() -> new ForbiddenException("You are not a member of workspace " + workspaceId));
+  }
+
+  private void requireEdit(Long workspaceId, Long userId) {
+    WorkspaceMemberEntity membership = requireMember(workspaceId, userId);
+    if (!WorkspaceRole.CAN_EDIT.contains(membership.getRole())) {
+      throw new ForbiddenException("Your role does not allow editing notes in workspace " + workspaceId);
+    }
+  }
+
+  private Long currentUserId() {
+    return userService.currentUser().getId();
   }
 }

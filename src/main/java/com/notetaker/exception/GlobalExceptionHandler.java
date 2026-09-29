@@ -8,8 +8,6 @@ import static org.springframework.http.HttpStatus.NOT_FOUND;
 import static org.springframework.http.HttpStatus.UNAUTHORIZED;
 
 import com.notetaker.model.ErrorResponse;
-import com.notetaker.notes.v1.exception.NoteAccessDeniedException;
-import com.notetaker.notes.v1.exception.NoteNotFoundException;
 import com.notetaker.security.UserIdMissingException;
 import jakarta.validation.ConstraintViolationException;
 import java.time.Instant;
@@ -43,13 +41,13 @@ public class GlobalExceptionHandler {
     return createExceptionBody(exception, BAD_REQUEST);
   }
 
-  @ExceptionHandler(NoteNotFoundException.class)
+  @ExceptionHandler(NotFoundException.class)
   @ResponseStatus(NOT_FOUND)
   public ErrorResponse handleNotFound(Exception exception) {
     return createExceptionBody(exception, NOT_FOUND);
   }
 
-  @ExceptionHandler(NoteAccessDeniedException.class)
+  @ExceptionHandler(ForbiddenException.class)
   @ResponseStatus(FORBIDDEN)
   public ErrorResponse handleForbidden(Exception exception) {
     return createExceptionBody(exception, FORBIDDEN);

@@ -1,27 +1,23 @@
 package com.notetaker.notes.v1.service;
 
 import com.notetaker.notes.v1.repository.entity.NoteEntity;
-import com.notetaker.notes.v1.repository.entity.NoteShareEntity;
-import java.util.List;
 import org.springframework.data.domain.Page;
 
 public interface NoteService {
 
-  NoteEntity create(String title, String content);
+  NoteEntity create(Long workspaceId, String title, String content);
 
-  NoteEntity get(String id);
+  NoteEntity get(Long id);
 
-  Page<NoteEntity> list(int pageNumber, int itemsPerPage, String searchTerm);
+  Page<NoteEntity> list(Long workspaceId, int pageNumber, int itemsPerPage, String searchTerm);
 
-  NoteEntity update(String id, String title, String content, Boolean completed);
+  Page<NoteEntity> listTrash(Long workspaceId, int pageNumber, int itemsPerPage);
 
-  NoteEntity complete(String id);
+  NoteEntity update(Long id, String title, String content, Boolean completed);
 
-  void delete(String id);
+  NoteEntity complete(Long id);
 
-  NoteShareEntity share(String id, String sharedWithUserId, String permission);
+  NoteEntity restore(Long id);
 
-  List<NoteShareEntity> listShares(String id);
-
-  void unshare(String id, String userId);
+  void delete(Long id);
 }

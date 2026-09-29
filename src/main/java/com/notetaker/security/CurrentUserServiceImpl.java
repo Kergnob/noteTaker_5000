@@ -12,7 +12,7 @@ import org.springframework.web.context.request.ServletRequestAttributes;
 @Service
 public class CurrentUserServiceImpl implements CurrentUserService {
 
-  /** Optional header used to impersonate a user id on no-auth (local/demo) profiles. */
+  /** Header used to impersonate a user id when no JWT is present. */
   public static final String DEMO_USER_HEADER = "X-Employee-Number";
 
   private final SecurityProperties properties;
@@ -32,12 +32,11 @@ public class CurrentUserServiceImpl implements CurrentUserService {
       if (StringUtils.hasText(token.getName())) {
         return token.getName();
       }
-      // A JWT was presented but carries no usable user id -> unauthorized.
+      // A JWT was presented but carries no usable user id.
       throw new UserIdMissingException();
     }
 
-    // No JWT (local/component-test "bypass" profiles). Allow a header to impersonate a user
-    // so sharing between users can be demoed; otherwise use the configured default user.
+    // No JWT present: use the impersonation header if set, otherwise the configured default user.
     String headerUser = headerUserId();
     if (StringUtils.hasText(headerUser)) {
       return headerUser;

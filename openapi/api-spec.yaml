@@ -3,9 +3,9 @@ info:
   version: 1.0.0
   title: NoteTaker API
   description: >
-    NoteTaker5000 - a lightweight note-taking service shared amongst small teams.
-    Users capture their work as notes, mark them complete, and can share notes with
-    other users. All endpoints require a valid Bearer JWT issued by a trusted issuer
+    NoteTaker5000 - a lightweight, collaborative note-taking service. Notes live inside
+    workspaces (spaces / groups); members share the notes in a workspace according to their
+    role (owner, editor, viewer). All endpoints require a valid JWT issued by a trusted issuer
     (the FIT-UI OKTA issuer for real users, or the self/bypass issuer for tests).
 servers:
   - url: https://notetaker-{environment}.example.com
@@ -19,18 +19,26 @@ servers:
         description: Application environment
 tags:
   - name: V1Notes
-    description: V1 Notes API - create, read, update, complete, delete and share notes
+    description: V1 Notes API - create, read, update, complete, trash and restore notes
+  - name: V1Workspaces
+    description: V1 Workspaces API - create workspaces and manage their members
 paths:
+  /api/v1/workspaces:
+    $ref: "./paths/workspaces.yaml"
+  /api/v1/workspaces/{id}/members:
+    $ref: "./paths/workspace-members.yaml"
+  /api/v1/workspaces/{id}/members/{userId}:
+    $ref: "./paths/workspace-member-by-user.yaml"
   /api/v1/notes:
     $ref: "./paths/notes.yaml"
+  /api/v1/notes/trash:
+    $ref: "./paths/notes-trash.yaml"
   /api/v1/notes/{id}:
     $ref: "./paths/note-by-id.yaml"
   /api/v1/notes/{id}/complete:
     $ref: "./paths/note-complete.yaml"
-  /api/v1/notes/{id}/shares:
-    $ref: "./paths/note-shares.yaml"
-  /api/v1/notes/{id}/shares/{userId}:
-    $ref: "./paths/note-share-by-user.yaml"
+  /api/v1/notes/{id}/restore:
+    $ref: "./paths/note-restore.yaml"
 components:
   securitySchemes:
     BearerAuth:

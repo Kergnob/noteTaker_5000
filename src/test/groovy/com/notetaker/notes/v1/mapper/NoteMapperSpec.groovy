@@ -1,8 +1,6 @@
 package com.notetaker.notes.v1.mapper
 
-import com.notetaker.model.SharePermission
 import com.notetaker.notes.v1.repository.entity.NoteEntity
-import com.notetaker.notes.v1.repository.entity.NoteShareEntity
 import spock.lang.Specification
 
 import java.time.Instant
@@ -16,11 +14,12 @@ class NoteMapperSpec extends Specification {
     def created = Instant.parse('2026-01-01T00:00:00Z')
     def updated = Instant.parse('2026-01-02T00:00:00Z')
     def entity = new NoteEntity()
-    entity.id = 'n1'
-    entity.ownerId = '111'
+    entity.id = 1024L
+    entity.workspaceId = 12L
     entity.title = 'T'
     entity.content = 'C'
     entity.completed = true
+    entity.createdByUserId = 55L
     entity.createdAt = created
     entity.updatedAt = updated
 
@@ -28,42 +27,38 @@ class NoteMapperSpec extends Specification {
     def model = mapper.toModel(entity)
 
     then:
-    model.id == 'n1'
-    model.ownerId == '111'
+    model.id == 1024L
+    model.workspaceId == 12L
     model.title == 'T'
     model.content == 'C'
     model.completed
+    model.createdByUserId == 55L
     model.createdAt == created
     model.updatedAt == updated
+    !model.deletedAt.isPresent()
   }
 
-  def "maps a NoteShareEntity to the NoteShare model with #permission permission"() {
+  def "maps deletedAt when the note is trashed"() {
     given:
-    def entity = new NoteShareEntity('n1', '222', permission)
-    entity.createdAt = Instant.parse('2026-01-01T00:00:00Z')
+    def deleted = Instant.parse('2026-01-03T00:00:00Z')
+    def entity = new NoteEntity()
+    entity.id = 1L
+    entity.workspaceId = 2L
+    entity.title = 'T'
+    entity.completed = false
+    entity.createdByUserId = 3L
+    entity.deletedAt = deleted
 
     when:
     def model = mapper.toModel(entity)
 
     then:
-    model.noteId == 'n1'
-    model.sharedWithUserId == '222'
-    model.permission == expected
-    model.createdAt == entity.createdAt
-
-    where:
-    permission | expected
-    'READ'     | SharePermission.READ
-    'WRITE'    | SharePermission.WRITE
+    model.deletedAt.isPresent()
+    model.deletedAt.get() == deleted
   }
 
   def "returns null when mapping a null note entity"() {
     expect:
-    mapper.toModel((NoteEntity) null) == null
-  }
-
-  def "returns null when mapping a null share entity"() {
-    expect:
-    mapper.toModel((NoteShareEntity) null) == null
+    mapper.toModel(null) == null
   }
 }

@@ -1,11 +1,9 @@
 package com.notetaker.notes.v1.mapper;
 
 import com.notetaker.model.Note;
-import com.notetaker.model.NoteShare;
-import com.notetaker.model.SharePermission;
 import com.notetaker.notes.v1.repository.entity.NoteEntity;
-import com.notetaker.notes.v1.repository.entity.NoteShareEntity;
 import org.mapstruct.Mapper;
+import org.openapitools.jackson.nullable.JsonNullable;
 
 @Mapper(componentModel = "spring")
 public interface NoteMapper {
@@ -17,29 +15,16 @@ public interface NoteMapper {
 
     return Note.builder()
         .id(entity.getId())
-        .ownerId(entity.getOwnerId())
+        .workspaceId(entity.getWorkspaceId())
         .title(entity.getTitle())
         .content(entity.getContent())
         .completed(entity.isCompleted())
+        .createdByUserId(entity.getCreatedByUserId())
         .createdAt(entity.getCreatedAt())
         .updatedAt(entity.getUpdatedAt())
+        .deletedAt(entity.getDeletedAt() == null
+            ? JsonNullable.undefined()
+            : JsonNullable.of(entity.getDeletedAt()))
         .build();
-  }
-
-  default NoteShare toModel(NoteShareEntity entity) {
-    if (entity == null) {
-      return null;
-    }
-
-    return NoteShare.builder()
-        .noteId(entity.getNoteId())
-        .sharedWithUserId(entity.getSharedWithUserId())
-        .permission(map(entity.getPermission()))
-        .createdAt(entity.getCreatedAt())
-        .build();
-  }
-
-  default SharePermission map(String permission) {
-    return permission == null ? null : SharePermission.fromValue(permission);
   }
 }
