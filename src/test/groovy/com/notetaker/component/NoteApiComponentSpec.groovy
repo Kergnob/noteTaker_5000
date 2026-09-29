@@ -11,127 +11,15 @@ import com.notetaker.model.WorkspaceMember
 import com.notetaker.model.WorkspaceMembersResponse
 import com.notetaker.model.WorkspaceRole
 import com.notetaker.model.WorkspacesResponse
-import com.notetaker.notes.v1.repository.AppUserRepository
-import com.notetaker.notes.v1.repository.NoteRepository
-import com.notetaker.notes.v1.repository.WorkspaceMemberRepository
-import com.notetaker.notes.v1.repository.WorkspaceRepository
-import com.notetaker.notes.v1.repository.entity.AppUserEntity
-import com.notetaker.notes.v1.repository.entity.NoteEntity
-import com.notetaker.notes.v1.repository.entity.WorkspaceEntity
-import com.notetaker.notes.v1.repository.entity.WorkspaceMemberEntity
-import com.notetaker.security.CurrentUserServiceImpl
-import org.springframework.beans.factory.annotation.Autowired
-import org.springframework.boot.test.context.SpringBootTest
-import org.springframework.boot.test.web.client.TestRestTemplate
-import org.springframework.boot.test.web.server.LocalServerPort
 import org.springframework.http.HttpEntity
-import org.springframework.http.HttpHeaders
 import org.springframework.http.HttpMethod
 import org.springframework.http.HttpStatus
-import org.springframework.http.MediaType
-import org.springframework.test.context.ActiveProfiles
-import spock.lang.Specification
-
 import java.time.Instant
 
-/**
- * Component test: boots the whole application on a random port under the {@code component-test}
- * profile (no JWT required), drives it through the HTTP API, and uses the JPA repositories /
- * H2 database directly for data preparation and verification.
- *
- * The {@code X-Employee-Number} header impersonates an external identity; the service provisions
- * an APP_USER row for it on first use. Workspaces and memberships are seeded through the
- * repositories so tests start from a deterministic state.
- */
-@ActiveProfiles('component-test')
-@SpringBootTest(webEnvironment = SpringBootTest.WebEnvironment.RANDOM_PORT)
-class NoteApiComponentSpec extends Specification {
-
+class NoteApiComponentSpec extends NoteComponentBaseSpec {
   static final String USER_A = 'A-1001'
   static final String USER_B = 'B-2002'
   static final String USER_C = 'C-3003'
-
-  @LocalServerPort
-  int port
-
-  @Autowired
-  TestRestTemplate rest
-
-  @Autowired
-  NoteRepository noteRepository
-
-  @Autowired
-  WorkspaceRepository workspaceRepository
-
-  @Autowired
-  WorkspaceMemberRepository memberRepository
-
-  @Autowired
-  AppUserRepository appUserRepository
-
-  def setup() {
-    noteRepository.deleteAll()
-    memberRepository.deleteAll()
-    workspaceRepository.deleteAll()
-    appUserRepository.deleteAll()
-  }
-
-  private String notesUrl() { "http://localhost:${port}/api/v1/notes" }
-
-  private String workspacesUrl() { "http://localhost:${port}/api/v1/workspaces" }
-
-  private static HttpHeaders headersFor(String user) {
-    def headers = new HttpHeaders()
-    headers.contentType = MediaType.APPLICATION_JSON
-    if (user != null) {
-      headers.set(CurrentUserServiceImpl.DEMO_USER_HEADER, user)
-    }
-    return headers
-  }
-
-  private <T> HttpEntity<T> asUser(String user, T body = null) {
-    new HttpEntity<>(body, headersFor(user))
-  }
-
-  private AppUserEntity provisionUser(String emp) {
-    appUserRepository.findByEmployeeNumber(emp).orElseGet {
-      def u = new AppUserEntity()
-      u.employeeNumber = emp
-      u.email = "${emp}@notetaker.local"
-      u.displayName = emp
-      appUserRepository.saveAndFlush(u)
-    }
-  }
-
-  private WorkspaceEntity seedWorkspace(String name = 'crew') {
-    def w = new WorkspaceEntity()
-    w.name = name
-    workspaceRepository.saveAndFlush(w)
-  }
-
-  private void addMember(long workspaceId, long userId, String role) {
-    memberRepository.saveAndFlush(new WorkspaceMemberEntity(workspaceId, userId, role))
-  }
-
-  /** Creates a workspace with the given user in the given role and returns [workspaceId, userId]. */
-  private List seedMembership(String emp, String role) {
-    def user = provisionUser(emp)
-    def ws = seedWorkspace()
-    addMember(ws.id, user.id, role)
-    return [ws.id, user.id]
-  }
-
-  private NoteEntity persistNote(long workspaceId, long creator, String title = 'seeded',
-                                 boolean completed = false, Instant deletedAt = null) {
-    def n = new NoteEntity()
-    n.workspaceId = workspaceId
-    n.createdByUserId = creator
-    n.title = title
-    n.content = 'seed body'
-    n.completed = completed
-    n.deletedAt = deletedAt
-    return noteRepository.saveAndFlush(n)
-  }
 
   // ---- workspace lifecycle --------------------------------------------------------------------
 

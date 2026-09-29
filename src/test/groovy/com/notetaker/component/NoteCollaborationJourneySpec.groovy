@@ -10,25 +10,8 @@ import com.notetaker.model.Workspace
 import com.notetaker.model.WorkspaceMember
 import com.notetaker.model.WorkspaceMembersResponse
 import com.notetaker.model.WorkspaceRole
-import com.notetaker.notes.v1.repository.AppUserRepository
-import com.notetaker.notes.v1.repository.NoteRepository
-import com.notetaker.notes.v1.repository.WorkspaceMemberRepository
-import com.notetaker.notes.v1.repository.WorkspaceRepository
-import com.notetaker.security.CurrentUserServiceImpl
-import org.springframework.beans.factory.annotation.Autowired
-import org.springframework.boot.test.context.SpringBootTest
-import org.springframework.boot.test.web.client.TestRestTemplate
-import org.springframework.boot.test.web.server.LocalServerPort
-import org.springframework.http.HttpEntity
-import org.springframework.http.HttpHeaders
 import org.springframework.http.HttpMethod
 import org.springframework.http.HttpStatus
-import org.springframework.http.MediaType
-import org.springframework.jdbc.core.JdbcTemplate
-import org.springframework.test.context.ActiveProfiles
-import org.springframework.transaction.PlatformTransactionManager
-import org.springframework.transaction.support.TransactionTemplate
-import spock.lang.Specification
 
 /**
  * End-to-end collaboration journeys: boots the whole application on a random port under the
@@ -39,73 +22,11 @@ import spock.lang.Specification
  * into the APP_USER table with SQL before the journey starts, so the workspace owner onboards
  * accounts that already exist rather than freshly provisioned ones.
  */
-@ActiveProfiles('component-test')
-@SpringBootTest(webEnvironment = SpringBootTest.WebEnvironment.RANDOM_PORT)
-class NoteCollaborationJourneySpec extends Specification {
+class NoteCollaborationJourneySpec extends NoteComponentBaseSpec {
 
   static final String ANNA = 'E-100'
   static final String BROOKE = 'E-200'
   static final String CARLOS = 'E-300'
-
-  @LocalServerPort
-  int port
-
-  @Autowired
-  TestRestTemplate rest
-
-  @Autowired
-  JdbcTemplate jdbc
-
-  @Autowired
-  PlatformTransactionManager txManager
-
-  @Autowired
-  NoteRepository noteRepository
-
-  @Autowired
-  WorkspaceRepository workspaceRepository
-
-  @Autowired
-  WorkspaceMemberRepository memberRepository
-
-  @Autowired
-  AppUserRepository appUserRepository
-
-  def setup() {
-    noteRepository.deleteAll()
-    memberRepository.deleteAll()
-    workspaceRepository.deleteAll()
-    appUserRepository.deleteAll()
-  }
-
-  private String notesUrl() { "http://localhost:${port}/api/v1/notes" }
-
-  private String workspacesUrl() { "http://localhost:${port}/api/v1/workspaces" }
-
-  private static HttpHeaders headersFor(String user) {
-    def headers = new HttpHeaders()
-    headers.contentType = MediaType.APPLICATION_JSON
-    headers.set(CurrentUserServiceImpl.DEMO_USER_HEADER, user)
-    return headers
-  }
-
-  private <T> HttpEntity<T> asUser(String user, T body = null) {
-    new HttpEntity<>(body, headersFor(user))
-  }
-
-  /**
-   * Enriches APP_USER with a pre-existing account and returns its generated USER_ID. The write is
-   * wrapped in an explicit transaction so it commits (the pool runs with auto-commit disabled) and
-   * is therefore visible to the application running on the server thread.
-   */
-  private long seedExistingUser(String emp, String email, String displayName) {
-    new TransactionTemplate(txManager).execute {
-      jdbc.update('''INSERT INTO NOTETAKER.APP_USER
-          (EMP_NBR, EMAIL_TXT, DSPL_NM, REC_CRTN_TMSTP, REC_MODIFY_TMSTP)
-          VALUES (?, ?, ?, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)''', emp, email, displayName)
-      jdbc.queryForObject('SELECT USER_ID FROM NOTETAKER.APP_USER WHERE EMP_NBR = ?', Long, emp)
-    }
-  }
 
   private long createWorkspace(String owner, String name) {
     def created = rest.exchange(workspacesUrl(), HttpMethod.POST,

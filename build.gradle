@@ -121,6 +121,9 @@ compileJava {
 
 tasks.named('test') {
   useJUnitPlatform()
+  testLogging {
+    showStandardStreams = true
+  }
   finalizedBy jacocoTestReport
 }
 

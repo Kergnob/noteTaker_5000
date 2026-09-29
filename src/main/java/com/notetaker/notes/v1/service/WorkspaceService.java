@@ -1,5 +1,15 @@
 package com.notetaker.notes.v1.service;
 
+import java.time.Instant;
+import java.util.Comparator;
+import java.util.List;
+import java.util.Map;
+import java.util.function.Function;
+import java.util.stream.Collectors;
+
+import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Transactional;
+
 import com.notetaker.exception.ForbiddenException;
 import com.notetaker.exception.NotFoundException;
 import com.notetaker.notes.v1.repository.WorkspaceMemberRepository;
@@ -7,19 +17,14 @@ import com.notetaker.notes.v1.repository.WorkspaceRepository;
 import com.notetaker.notes.v1.repository.entity.AppUserEntity;
 import com.notetaker.notes.v1.repository.entity.WorkspaceEntity;
 import com.notetaker.notes.v1.repository.entity.WorkspaceMemberEntity;
-import java.time.Instant;
-import java.util.Comparator;
-import java.util.List;
-import java.util.Map;
-import java.util.function.Function;
-import java.util.stream.Collectors;
+
 import lombok.RequiredArgsConstructor;
-import org.springframework.stereotype.Service;
-import org.springframework.transaction.annotation.Transactional;
+import lombok.extern.slf4j.Slf4j;
 
 /** Workspace lifecycle plus membership management (spaces/groups of collaborating users). */
 @Service
 @RequiredArgsConstructor
+@Slf4j
 @Transactional
 public class WorkspaceService {
 
@@ -40,6 +45,7 @@ public class WorkspaceService {
     workspace = workspaceRepository.save(workspace);
     memberRepository.save(
         new WorkspaceMemberEntity(workspace.getId(), caller.getId(), WorkspaceRole.OWNER));
+    log.info("Created workspace {} by user {}", workspace.getId(), caller.getId());
     return new MembershipView(workspace, WorkspaceRole.OWNER);
   }
 
@@ -80,6 +86,8 @@ public class WorkspaceService {
         : existing;
     member.setRole(resolvedRole);
     member = memberRepository.save(member);
+    log.info("{} member {} in workspace {} with role {}",
+      created ? "Added" : "Updated", target.getId(), workspaceId, member.getRole());
     return new MemberView(target, member.getRole(), member.getCreatedAt(), created);
   }
 
@@ -96,6 +104,7 @@ public class WorkspaceService {
       throw new ForbiddenException("Cannot remove the last owner of workspace " + workspaceId);
     }
     memberRepository.delete(target);
+    log.info("Removed member {} from workspace {}", userId, workspaceId);
   }
 
   private List<MemberView> toMemberViews(List<WorkspaceMemberEntity> members) {

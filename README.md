@@ -7,26 +7,41 @@ Who can do what is governed by each member's **role** in a workspace (OWNER / ED
 Callers are identified by the `employeeNumber` on their JWT and provisioned automatically on
 first use — there is no separate sign-up step.
 
-**begin of chain of thought** 
-since testGorilla lost my little writeup that I had before this all kicked off with copilot, I'll put some of it here to at least provide some _context_ to what the heck I was thinking 
-Initial tech stack: 
-Java Spring Boot town population me because thats what I have had the most exposure to. Spring boot might be huge compared to some of the other coding languages can produce but this is what I'v used the most so here we go. SB3+ and Java 21. Gradle because iv been burned by maven too many times and I can't love anymore because of it :(
-For local and component-test spring profiles I want to have H2 as its quick but for production or the test / integration level use oracle as thats what I too have the most familiarity with unless we don't care about money then REDIS all the things.
-API First so that if this was being developed alongside a UI (NoteTaker-UI) that we'd be able to develop and sign off on the swagger-ui api contracts first and then push that down into the controller code. Having that stuff as fully exposed and accessible for other teams to collaborate with so we don't need as much back and forth on what each does - populate with examples and response codes
-mapstruct and lombok to reduce any other boilerplate bs within the app and JPA for repository layer since Entities are clean and there's not very much custom Query implementations.
+## Project Notes
 
-Feature wise of this app though - it needs to be able to take notes. I know. NUTS
-Being able to persist them in various ways, SAVE/UPDATE/DELETE but I don't think we should have a permanent delete and instead a soft delete and maybe eventually have some purge job to clean those out after some threshold is hit for the deleted 'flag' and after a certain amount of time has been passed on the modified date column. Getting a specific note to modify or delete, retrieving a list of notes, and I guess having users share notes with one another? Do they need to work in a common area as a parent 'group' and child 'notes'? 
+These notes capture the original goals and tradeoffs behind the implementation.
+
+since testGorilla lost my little writeup that I had before this all kicked off with copilot, I'll put some of it here to at least provide some _context_ to what the heck I was thinking 
+
+### Initial Technology Choices
+
+- **Language and build:** Java Spring Boot because that's what I have the most exposure to. Spring Boot might be bigger than some alternatives, but it is what I've used most. Spring Boot 3+ and Java 21, with Gradle because I've been burned by Maven too many times.
+- **Databases:** H2 for local and component-test profiles; Oracle for production or integration testing because it is familiar. Redis was another option if cost were no concern.
+- **API-first development:** Define and review the Swagger UI contract alongside a client such as NoteTaker-UI, then implement the controller against it. Keep examples and response codes available to other teams to reduce back and forth.
+- **Persistence and boilerplate:** MapStruct and Lombok to reduce boilerplate, with JPA for the repository layer because the entities are clean and there are few custom queries.
+
+### Product Scope
+
+- **Core workflow:** Take notes, save and update them, retrieve a specific note or list, and let users share notes in a common workspace.
+- **Deletion:** Prefer soft deletion over permanent deletion, with a possible purge job after a retention period based on the deleted flag and modification timestamp.
+
+### Possible Future Features
 
 Future features - I mean doing some sort of live updates shared across all users, tagging notes, maybe even categories or notes which would mean a new hierarchy model for them potentially. Offline mode for the UI but thats more of something we'd need to work out on the UI side, @ mentions of tags to other users. Would teams then be created and each Team be able to create their own groups of notes?
 
-**end of chain of thought** 
+### Architecture and Maintainability
 
 So the initial tech stack I wanted to clearly define rather than leaving it up to AI to go off on as I wanted to be clear what each was doing. Having a highly performant application is all great until someone goes to maintain any piece of the code and its completely and utterly unreadable. For this application I didn't feel like we needed to reach to dramatically different package structure like what can be found in Hexagonal Arch'd applications as its fairly flat, there's no other secondary jobs or processes running or external services getting invoked that would make breaking it out in ports and adapters and whatnot clearer. The main reasoning behind the selected dependencies is also to just keep the boiler plate code as lean as possible. Business code should be the priority of most developers (imo) and to re-plumb pipes every time is something id rather not have developers be spending their time doing...especially when it can all be done slightly different from one another causing diagnosing issues harder as you have no solid base to use as a reference.
 
+### Security Tradeoffs
+
 The security profile was probably second but I only know through experience with OKTA that it has a tendency to validate each and every token. So not only would clients being going to issue and get minted new tokens over and over (which has a direct cost) but also the server (the service the client is calling) has to then validate each and every time as well. Coming to some sort of agreement for how long tokens should be valid for would also cover us for outage times. 4hrs is safer and just overall reduces the amount of calls the server has to call OKTA to validate and instead just keeps a keychain it can reference instead. This might be wrong for high user count applications as holding all of those would be bad but for small groups of people...
 
+### Collaboration Model
+
 The 'collaboration' workplace model was the hardest feature to properly define. Treat shared areas as spaces/groups, rather than just individualized, forced a full redo of the application. It went from per-note sharing to Workspace + WorkspaceNum, grants and roles in almost every operation. Ensuring that the component tests had some flows that not only covered just simple endpoint articulations but also scenarios with realistic multi user, seeding pre-existing data via repo/H2 was the last thing to add and get covered.
+
+### What I Would Change Next
 
 As far as what I'd change, add, or stop doing if I had more time - I mean its the best notes app with no UI - there's nothing it cannot do. 
 I think as far as features to be added down the road I mentioned on the testGorilla site but the largest would be actually sync'd working on the same note at the same time. It would be a much larger tech ask but would be a quality of life improvement. Just really depends on users input as to if it's necessary/useful. The original premise of this application was that 'several small teams' so even right now this application is more than likely larger than what the real ask is.
