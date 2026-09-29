@@ -1,0 +1,74 @@
+Note:
+  type: object
+  description: A note owned by a user
+  required:
+    - id
+    - title
+    - ownerId
+    - createdAt
+    - updatedAt
+  properties:
+    id:
+      type: string
+      description: Unique identifier of the note
+      example: "3f2a9c6e-1b7d-4c2e-9a55-8e0f1d2c3b4a"
+    ownerId:
+      type: string
+      description: Identifier of the user who owns the note
+      example: "987654"
+    title:
+      type: string
+      example: "Dock 12 inspection follow-up"
+    content:
+      type: string
+      example: "Re-check pallet wrap on HU 4471 before release."
+    completed:
+      type: boolean
+      description: True when the owner has marked the note complete
+      example: false
+    shared:
+      type: boolean
+      description: True when this note was shared with the caller rather than owned by them
+      example: false
+    createdAt:
+      type: string
+      format: date-time
+      example: "2026-09-28T15:04:05Z"
+    updatedAt:
+      type: string
+      format: date-time
+      example: "2026-09-28T15:04:05Z"
+
+CreateNoteRequest:
+  type: object
+  required:
+    - title
+  properties:
+    title:
+      type: string
+      minLength: 1
+      maxLength: 200
+      example: "Dock 12 inspection follow-up"
+    content:
+      type: string
+      maxLength: 20000
+      example: "Re-check pallet wrap on HU 4471 before release."
+
+UpdateNoteRequest:
+  type: object
+  required:
+    - title
+  properties:
+    title:
+      type: string
+      minLength: 1
+      maxLength: 200
+      example: "Dock 12 inspection follow-up (resolved)"
+    content:
+      type: string
+      maxLength: 20000
+      example: "Pallet re-wrapped and released at 14:05."
+    completed:
+      type: boolean
+      description: Optionally set the completed state while updating the note
+      example: true

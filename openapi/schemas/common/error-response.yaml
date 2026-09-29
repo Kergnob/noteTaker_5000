@@ -1,0 +1,25 @@
+ErrorResponse:
+  type: object
+  required:
+    - error
+    - message
+    - statusCode
+    - timestamp
+  properties:
+    error:
+      type: string
+      example: "NOT_FOUND"
+    message:
+      type: string
+      example: "Note 3f2a9c6e-1b7d-4c2e-9a55-8e0f1d2c3b4a not found"
+    statusCode:
+      type: integer
+      format: int32
+      example: 404
+    timestamp:
+      type: string
+      format: date-time
+      example: "2026-09-28T15:04:05Z"
+    requestId:
+      type: string
+      example: "b1946ac92492d2347c6235b4d2611184"

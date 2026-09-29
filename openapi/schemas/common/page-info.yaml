@@ -1,0 +1,14 @@
+PageInfo:
+  type: object
+  required:
+    - pagesCount
+    - totalItems
+  properties:
+    pagesCount:
+      type: integer
+      format: int32
+      example: 3
+    totalItems:
+      type: integer
+      format: int32
+      example: 42

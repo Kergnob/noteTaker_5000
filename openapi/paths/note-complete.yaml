@@ -1,0 +1,39 @@
+post:
+  operationId: completeNote
+  summary: Mark a note as completed and save it (owner only)
+  security:
+    - BearerAuth: [ ]
+  tags:
+    - V1Notes
+  parameters:
+    - name: id
+      in: path
+      required: true
+      description: Unique identifier of the note
+      schema:
+        type: string
+  responses:
+    '200':
+      description: The completed note
+      content:
+        application/json:
+          schema:
+            $ref: "../schemas/note.yaml#/Note"
+    '401':
+      description: No valid JWT authentication token was provided
+      content:
+        application/json:
+          schema:
+            $ref: "../schemas/common/error-response.yaml#/ErrorResponse"
+    '403':
+      description: Only the owner may complete the note
+      content:
+        application/json:
+          schema:
+            $ref: "../schemas/common/error-response.yaml#/ErrorResponse"
+    '404':
+      description: No note with the specified id was found
+      content:
+        application/json:
+          schema:
+            $ref: "../schemas/common/error-response.yaml#/ErrorResponse"

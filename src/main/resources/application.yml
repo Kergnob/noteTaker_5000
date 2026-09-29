@@ -1,0 +1,73 @@
+---
+spring:
+  application:
+    name: note-taker-service
+  datasource:
+    username: ${NOTETAKER_DB_USER}
+    password: ${NOTETAKER_DB_PASSWORD}
+    hikari:
+      maximum-pool-size: 50
+      minimum-idle: 1
+      auto-commit: false
+      schema: NOTETAKER
+  liquibase:
+    enabled: false
+  jpa:
+    hibernate:
+      ddl-auto: none
+    open-in-view: false
+    properties:
+      hibernate:
+        dialect: org.hibernate.dialect.OracleDialect
+        default_schema: NOTETAKER
+        connection:
+          provider_disables_autocommit: true
+        jdbc:
+          batch_size: 10
+          order_inserts: true
+          order_updates: true
+
+management:
+  health:
+    db:
+      enabled: false
+  endpoints:
+    web:
+      exposure:
+        include:
+          - health
+          - info
+
+server:
+  port: 8080
+
+notetaker:
+  security:
+    user-id-claim: employeeNumber
+    cors-allowed-origins:
+      - "*"
+    cors-allowed-methods:
+      - GET
+      - POST
+      - PUT
+      - PATCH
+      - DELETE
+    public-uris:
+      - /actuator/health
+      - /actuator/info
+      - /swagger-ui/**
+      - /swagger-ui.html
+      - /v3/api-docs/**
+    token-issuers:
+      fit-ui-issuer:
+        url: https://purpleid-test.oktapreview.com/oauth2/aus1qh6w8a3XU2mAs0h8
+        audience: APP3539944
+        keys-uri: /v1/keys
+      test-issuer:
+        url: https://notetaker-test-issuer.local
+        keys-uri: /v1/keys
+    jwks:
+      key-cache-refresh-minutes: 240
+      outage-protection-minutes: 1440
+      connect-timeout-ms: 10000
+      read-timeout-ms: 5000

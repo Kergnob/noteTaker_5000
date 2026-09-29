@@ -1,0 +1,12 @@
+NotesResponse:
+  type: object
+  required:
+    - notes
+    - pageInfo
+  properties:
+    notes:
+      type: array
+      items:
+        $ref: "./note.yaml#/Note"
+    pageInfo:
+      $ref: "./common/page-info.yaml#/PageInfo"

@@ -1,0 +1,11 @@
+pluginManagement {
+  repositories {
+    maven {
+      url 'https://nexus.prod.cloud.fedex.com:8443/nexus/repository/Gradle'
+    }
+    gradlePluginPortal()
+    mavenCentral()
+  }
+}
+
+rootProject.name = 'noteTaker5000'

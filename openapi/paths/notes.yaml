@@ -1,0 +1,81 @@
+get:
+  operationId: listNotes
+  summary: List notes visible to the caller (owned and shared-with-me)
+  security:
+    - BearerAuth: [ ]
+  tags:
+    - V1Notes
+  parameters:
+    - name: pageNumber
+      in: query
+      required: false
+      description: 1-based page number
+      schema:
+        type: integer
+        format: int32
+        minimum: 1
+        default: 1
+    - name: itemsPerPage
+      in: query
+      required: false
+      description: Number of items per page
+      schema:
+        type: integer
+        format: int32
+        minimum: 1
+        maximum: 200
+        default: 20
+    - name: searchTerm
+      in: query
+      required: false
+      description: Optional case-insensitive filter applied to the note title
+      schema:
+        type: string
+  responses:
+    '200':
+      description: A page of notes
+      content:
+        application/json:
+          schema:
+            $ref: "../schemas/notes-response.yaml#/NotesResponse"
+    '401':
+      description: No valid JWT authentication token was provided
+      content:
+        application/json:
+          schema:
+            $ref: "../schemas/common/error-response.yaml#/ErrorResponse"
+post:
+  operationId: createNote
+  summary: Create a new note owned by the caller
+  security:
+    - BearerAuth: [ ]
+  tags:
+    - V1Notes
+  requestBody:
+    required: true
+    content:
+      application/json:
+        schema:
+          $ref: "../schemas/note.yaml#/CreateNoteRequest"
+        example:
+          title: "Dock 12 inspection follow-up"
+          content: "Re-check pallet wrap on HU 4471 before release."
+  responses:
+    '201':
+      description: The created note
+      content:
+        application/json:
+          schema:
+            $ref: "../schemas/note.yaml#/Note"
+    '400':
+      description: The request was invalid
+      content:
+        application/json:
+          schema:
+            $ref: "../schemas/common/error-response.yaml#/ErrorResponse"
+    '401':
+      description: No valid JWT authentication token was provided
+      content:
+        application/json:
+          schema:
+            $ref: "../schemas/common/error-response.yaml#/ErrorResponse"

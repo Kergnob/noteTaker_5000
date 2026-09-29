@@ -1,0 +1,15 @@
+databaseChangeLog:
+  - changeSet:
+      id: create-note-table.sql
+      author: notetaker
+      changes:
+        - sqlFile:
+            path: ./sql/create-note-table.sql
+            relativeToChangelogFile: true
+  - changeSet:
+      id: create-note-share-table.sql
+      author: notetaker
+      changes:
+        - sqlFile:
+            path: ./sql/create-note-share-table.sql
+            relativeToChangelogFile: true

@@ -1,0 +1,53 @@
+spring:
+  datasource:
+    url: "jdbc:h2:mem:notetakerDb;INIT=CREATE SCHEMA IF NOT EXISTS NOTETAKER;MODE=Oracle;DB_CLOSE_DELAY=-1;"
+    driver-class-name: org.h2.Driver
+    username: sa
+    password: ""
+  liquibase:
+    enabled: true
+    change-log: classpath:changelogs/db.root-master.yaml
+  h2:
+    console:
+      enabled: true
+  jpa:
+    show-sql: true
+    properties:
+      hibernate:
+        format_sql: true
+
+notetaker:
+  security:
+    # Local/demo profile does NOT require a JWT (see SecurityConfig localPermitAllFilterChain).
+    # These issuers are placeholders only; they are never contacted while running locally.
+    user-id-claim: employeeNumber
+    default-user-id: local-user
+    cors-allowed-origins:
+      - "*"
+    cors-allowed-methods:
+      - GET
+      - POST
+      - PUT
+      - PATCH
+      - DELETE
+    public-uris:
+      - /actuator/health
+      - /actuator/info
+      - /swagger-ui/**
+      - /swagger-ui.html
+      - /v3/api-docs/**
+      - /h2-console/**
+    token-issuers:
+      notetaker-ui-issuer:
+        url: https://fake-notetaker-ui.local/oauth2/default
+        audience: notetaker-ui
+        keys-uri: /v1/keys
+      notetaker-app-issuer:
+        url: https://fake-notetaker-app.local/oauth2/default
+        audience: notetaker-app
+        keys-uri: /v1/keys
+    jwks:
+      key-cache-refresh-minutes: 240
+      outage-protection-minutes: 1440
+      connect-timeout-ms: 10000
+      read-timeout-ms: 5000

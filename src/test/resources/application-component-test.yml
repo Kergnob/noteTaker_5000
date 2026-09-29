@@ -1,0 +1,45 @@
+spring:
+  datasource:
+    url: "jdbc:h2:mem:notetakerComponentTestDb;INIT=CREATE SCHEMA IF NOT EXISTS NOTETAKER;MODE=Oracle;DB_CLOSE_DELAY=-1;"
+    driver-class-name: org.h2.Driver
+    username: sa
+    password: ""
+  liquibase:
+    enabled: true
+    change-log: classpath:changelogs/db.root-master.yaml
+  h2:
+    console:
+      enabled: false
+  jpa:
+    show-sql: false
+    properties:
+      hibernate:
+        format_sql: false
+
+notetaker:
+  security:
+    # component-test profile does NOT require a JWT (SecurityConfig localPermitAllFilterChain).
+    # Issuer URLs below are placeholders and are never contacted during tests.
+    user-id-claim: employeeNumber
+    default-user-id: component-test-user
+    cors-allowed-origins:
+      - "*"
+    cors-allowed-methods:
+      - GET
+      - POST
+      - PUT
+      - PATCH
+      - DELETE
+    public-uris:
+      - /actuator/health
+      - /actuator/info
+    token-issuers:
+      notetaker-ui-issuer:
+        url: https://fake-notetaker-ui.local/oauth2/default
+        audience: notetaker-ui
+        keys-uri: /v1/keys
+    jwks:
+      key-cache-refresh-minutes: 240
+      outage-protection-minutes: 1440
+      connect-timeout-ms: 10000
+      read-timeout-ms: 5000

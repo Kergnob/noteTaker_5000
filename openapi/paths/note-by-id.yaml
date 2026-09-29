@@ -1,0 +1,129 @@
+get:
+  operationId: getNote
+  summary: Get a single note by id (must be owner or shared-with)
+  security:
+    - BearerAuth: [ ]
+  tags:
+    - V1Notes
+  parameters:
+    - name: id
+      in: path
+      required: true
+      description: Unique identifier of the note
+      schema:
+        type: string
+  responses:
+    '200':
+      description: The requested note
+      content:
+        application/json:
+          schema:
+            $ref: "../schemas/note.yaml#/Note"
+    '401':
+      description: No valid JWT authentication token was provided
+      content:
+        application/json:
+          schema:
+            $ref: "../schemas/common/error-response.yaml#/ErrorResponse"
+    '403':
+      description: The caller is not allowed to access this note
+      content:
+        application/json:
+          schema:
+            $ref: "../schemas/common/error-response.yaml#/ErrorResponse"
+    '404':
+      description: No note with the specified id was found
+      content:
+        application/json:
+          schema:
+            $ref: "../schemas/common/error-response.yaml#/ErrorResponse"
+put:
+  operationId: updateNote
+  summary: Update a note (owner only)
+  security:
+    - BearerAuth: [ ]
+  tags:
+    - V1Notes
+  parameters:
+    - name: id
+      in: path
+      required: true
+      description: Unique identifier of the note
+      schema:
+        type: string
+  requestBody:
+    required: true
+    content:
+      application/json:
+        schema:
+          $ref: "../schemas/note.yaml#/UpdateNoteRequest"
+        example:
+          title: "Dock 12 inspection follow-up (resolved)"
+          content: "Pallet re-wrapped and released at 14:05."
+          completed: true
+  responses:
+    '200':
+      description: The updated note
+      content:
+        application/json:
+          schema:
+            $ref: "../schemas/note.yaml#/Note"
+    '400':
+      description: The request was invalid
+      content:
+        application/json:
+          schema:
+            $ref: "../schemas/common/error-response.yaml#/ErrorResponse"
+    '401':
+      description: No valid JWT authentication token was provided
+      content:
+        application/json:
+          schema:
+            $ref: "../schemas/common/error-response.yaml#/ErrorResponse"
+    '403':
+      description: Only the owner may update the note
+      content:
+        application/json:
+          schema:
+            $ref: "../schemas/common/error-response.yaml#/ErrorResponse"
+    '404':
+      description: No note with the specified id was found
+      content:
+        application/json:
+          schema:
+            $ref: "../schemas/common/error-response.yaml#/ErrorResponse"
+delete:
+  operationId: deleteNote
+  summary: Delete a note (owner only)
+  security:
+    - BearerAuth: [ ]
+  tags:
+    - V1Notes
+  parameters:
+    - name: id
+      in: path
+      required: true
+      description: Unique identifier of the note
+      schema:
+        type: string
+  responses:
+    '204':
+      description: Note deleted
+    '401':
+      description: No valid JWT authentication token was provided
+      content:
+        application/json:
+          schema:
+            $ref: "../schemas/common/error-response.yaml#/ErrorResponse"
+    '403':
+      description: Only the owner may delete the note
+      content:
+        application/json:
+          schema:
+            $ref: "../schemas/common/error-response.yaml#/ErrorResponse"
+    '404':
+      description: No note with the specified id was found
+      content:
+        application/json:
+          schema:
+            $ref: "../schemas/common/error-response.yaml#/ErrorResponse"
