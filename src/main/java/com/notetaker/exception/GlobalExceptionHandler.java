@@ -73,6 +73,7 @@ public class GlobalExceptionHandler {
   }
 
   private ErrorResponse createExceptionBody(Exception exception, HttpStatus status) {
+    log.debug("Handled HTTP {} for {}", status.value(), exception.getClass().getSimpleName());
     return ErrorResponse.builder()
         .error(status.name())
         .message(exception.getMessage())

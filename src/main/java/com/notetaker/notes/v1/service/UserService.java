@@ -1,11 +1,14 @@
 package com.notetaker.notes.v1.service;
 
+import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Transactional;
+
 import com.notetaker.notes.v1.repository.AppUserRepository;
 import com.notetaker.notes.v1.repository.entity.AppUserEntity;
 import com.notetaker.security.CurrentUserService;
+
 import lombok.RequiredArgsConstructor;
-import org.springframework.stereotype.Service;
-import org.springframework.transaction.annotation.Transactional;
+import lombok.extern.slf4j.Slf4j;
 
 /**
  * Resolves the internal {@link AppUserEntity} from an external identity (JWT employeeNumber),
@@ -13,6 +16,7 @@ import org.springframework.transaction.annotation.Transactional;
  */
 @Service
 @RequiredArgsConstructor
+@Slf4j
 @Transactional
 public class UserService {
 
@@ -38,6 +42,8 @@ public class UserService {
     // Synthesize an email/display name from the employee number.
     user.setEmail(employeeNumber + "@notetaker.local");
     user.setDisplayName(employeeNumber);
-    return appUserRepository.save(user);
+    AppUserEntity saved = appUserRepository.save(user);
+    log.info("Provisioned user {}", saved.getId());
+    return saved;
   }
 }
